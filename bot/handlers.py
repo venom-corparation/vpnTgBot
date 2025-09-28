@@ -283,6 +283,7 @@ class UserHandlers(MessageHandler):
                 kb = InlineKeyboardMarkup(row_width=1)
                 kb.add(InlineKeyboardButton("Оплатить в ЮKassa", url=url))
                 kb.add(InlineKeyboardButton("Я оплатил — проверить", callback_data=f"pay_check:{pay.get('id') or ''}"))
+                kb.add(InlineKeyboardButton("← Назад", callback_data="back_main"))
                 await edit_menu_text(call, "Перейдите по ссылке для оплаты. После оплаты вернитесь в бот и нажмите ‘Я оплатил — проверить’.", kb)
             else:
                 err = (pay or {}).get("error") if isinstance(pay, dict) else "unknown"
@@ -456,9 +457,11 @@ class UserHandlers(MessageHandler):
             kb = kb_main(show_trial=False, is_admin=is_admin)
             await edit_menu_text(call, f"Оплата подтверждена. Доступ активирован на {days} дн.", kb)
         elif final_status == "canceled":
-            await call.answer("Оплата отменена.", show_alert=True)
+            kb = InlineKeyboardMarkup().add(InlineKeyboardButton("← Назад", callback_data="back_main"))
+            await edit_menu_text(call, "Оплата отменена.", kb)
         else:
-            await call.answer("Платёж пока не подтверждён. Попробуйте позже.", show_alert=True)
+            kb = InlineKeyboardMarkup().add(InlineKeyboardButton("← Назад", callback_data="back_main"))
+            await edit_menu_text(call, "Платёж пока не подтверждён. Попробуйте позже.", kb)
 
     async def handle_guide_detail(self, call: types.CallbackQuery, platform: str):
         """Показать детальную инструкцию для платформы."""
