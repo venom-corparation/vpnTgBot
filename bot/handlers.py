@@ -200,18 +200,29 @@ class UserHandlers(MessageHandler):
 
     async def handle_buy(self, call: types.CallbackQuery):
         """Показать меню покупки."""
+        is_admin = self.is_admin(call.from_user.id)
         text = (
             "Выберите тарифный план:\n\n"
-            "• Тест — 1₽ за 1 день (для проверки работы)\n"
+        )
+        if is_admin:
+            text += "• Тест — 1₽ за 1 день (для проверки работы)\n"
+        text += (
             "• 1 месяц — оптимально, чтобы попробовать\n"
             "• 3 месяца — выгоднее, меньше возни с продлениями\n"
             "• 6 месяцев — максимальная выгода и стабильность\n\n"
             "После оплаты доступ активируется автоматически, срок появится в разделе «Моя подписка»."
         )
-        await edit_menu_text(call, text, kb_buy_menu())
+        await edit_menu_text(call, text, kb_buy_menu(is_admin=is_admin))
 
     async def handle_buy_plan(self, call: types.CallbackQuery):
         """Обработать покупку тарифа: отправить инвойс."""
+        plan = call.data
+        
+        # Проверяем доступ к тестовому товару только для админов
+        if plan == "buy_test" and not self.is_admin(call.from_user.id):
+            await call.answer("Доступ ограничен.", show_alert=True)
+            return
+        
         plan_to_days = {
             "buy_test": 1,    # Тестовый товар - 1 день
             "buy_1m": 30,
@@ -224,7 +235,6 @@ class UserHandlers(MessageHandler):
             "buy_3m": 36900,  # 369.00 RUB
             "buy_6m": 59900,  # 599.00 RUB
         }
-        plan = call.data
         days = plan_to_days.get(plan, 30)
         amount = plan_to_price.get(plan, 14900)
 

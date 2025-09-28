@@ -18,9 +18,10 @@ def kb_main(show_trial: bool, is_admin: bool) -> InlineKeyboardMarkup:
     return kb
 
 
-def kb_buy_menu() -> InlineKeyboardMarkup:
+def kb_buy_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("🧪 Тест — 1₽ (1 день)", callback_data=BUY_TEST))
+    if is_admin:
+        kb.add(InlineKeyboardButton("🧪 Тест — 1₽ (1 день)", callback_data=BUY_TEST))
     kb.add(InlineKeyboardButton("1 месяц — 149₽", callback_data=BUY_1M))
     kb.add(InlineKeyboardButton("3 месяца — 369₽", callback_data=BUY_3M))
     kb.add(InlineKeyboardButton("6 месяца — 649₽", callback_data=BUY_6M))
