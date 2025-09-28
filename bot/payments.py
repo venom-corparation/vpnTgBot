@@ -8,6 +8,7 @@ from typing import Optional, Dict
 import json
 import uuid
 from config import YOOKASSA_ACCOUNT_ID, YOOKASSA_SECRET_KEY, YOOKASSA_RETURN_URL, USE_YOOKASSA
+from callbacks import BACK_MAIN
 
 
 def init_yookassa() -> bool:
