@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
 import time
 
-from .config import XUI_URL, XUI_USER, XUI_PASSWORD
+from config import XUI_URL, XUI_USER, XUI_PASSWORD
 
 logger = logging.getLogger(__name__)
 

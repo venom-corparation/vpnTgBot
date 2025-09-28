@@ -194,7 +194,7 @@ def setup_middleware(dp, admin_ids: list):
     dp.middleware.setup(LoggingMiddleware())
     dp.middleware.setup(ErrorHandlingMiddleware())
     dp.middleware.setup(PerformanceMiddleware())
-    from .config import RATE_MAX_ACTIONS, RATE_WINDOW_SEC
+    from config import RATE_MAX_ACTIONS, RATE_WINDOW_SEC
     dp.middleware.setup(RateLimitMiddleware(max_actions=RATE_MAX_ACTIONS, window_sec=RATE_WINDOW_SEC))
     dp.middleware.setup(AdminOnlyMiddleware(admin_ids))
     dp.middleware.setup(DatabaseMiddleware(admin_ids))

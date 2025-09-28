@@ -7,7 +7,7 @@ from typing import Dict, List
 import time
 import logging
 
-from .config import ADMIN_IDS
+from config import ADMIN_IDS
 
 
 class AnomalyMonitor:

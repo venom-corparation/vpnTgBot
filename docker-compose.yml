@@ -4,7 +4,7 @@ services:
   vpnbot:
     build:
       context: .
-      dockerfile: deploy/Dockerfile
+      dockerfile: Dockerfile
     container_name: vpnbot
     restart: unless-stopped
     env_file:

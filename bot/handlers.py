@@ -11,14 +11,14 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, LabeledPri
 from aiogram.utils.exceptions import MessageNotModified
 import logging
 
-from .config import ADMIN_IDS, PROVIDER_TOKEN, CURRENCY, USE_YOOKASSA
-from .payments import create_redirect_payment, get_payment_status
-from .db import save_payment, update_payment_status, get_payment, mark_payment_applied
-from .api import get_session_cached, check_if_client_exists, get_client_info, add_client_days, extend_client_days, generate_vless_link
-from .db import upsert_user_on_start, set_vpn_email, get_user_by_tg, redeem_promo, add_promo, list_users, count_users, count_users_with_vpn, count_promos, sum_promo_uses, list_promos
-from .keyboards import kb_main, kb_buy_menu, kb_promo_back, kb_guide, admin_kb
-from .ui import edit_menu_text, edit_menu_text_pm
-from .callbacks import ADMIN_PROMOS
+from config import ADMIN_IDS, PROVIDER_TOKEN, CURRENCY, USE_YOOKASSA
+from payments import create_redirect_payment, get_payment_status
+from db import save_payment, update_payment_status, get_payment, mark_payment_applied
+from api import get_session_cached, check_if_client_exists, get_client_info, add_client_days, extend_client_days, generate_vless_link
+from db import upsert_user_on_start, set_vpn_email, get_user_by_tg, redeem_promo, add_promo, list_users, count_users, count_users_with_vpn, count_promos, sum_promo_uses, list_promos
+from keyboards import kb_main, kb_buy_menu, kb_promo_back, kb_guide, admin_kb
+from ui import edit_menu_text, edit_menu_text_pm
+from callbacks import ADMIN_PROMOS
 
 
 class MessageHandler:
@@ -333,7 +333,7 @@ class UserHandlers(MessageHandler):
 
     async def handle_promo_start(self, call: types.CallbackQuery, state: FSMContext):
         """Начать ввод промокода."""
-        from .bot import PromoStates
+        from bot import PromoStates
         await PromoStates.waiting_code.set()
         await state.update_data(menu_chat_id=call.message.chat.id, menu_msg_id=call.message.message_id)
         await edit_menu_text(call, "Введи промокод", kb_promo_back())
@@ -460,7 +460,7 @@ class UserHandlers(MessageHandler):
 
     async def handle_support_start(self, call: types.CallbackQuery, state: FSMContext):
         """Начать отправку сообщения в поддержку."""
-        from .bot import SupportStates
+        from bot import SupportStates
         await SupportStates.waiting_issue.set()
         await state.update_data(menu_chat_id=call.message.chat.id, menu_msg_id=call.message.message_id)
         await edit_menu_text(call, "Опиши проблему. Пиши текстом — без вложений", kb_promo_back())
@@ -504,7 +504,7 @@ class AdminHandlers(MessageHandler):
             await call.answer("Доступ ограничен.", show_alert=True)
             return
         
-        from .bot import AdminStates
+        from bot import AdminStates
         await AdminStates.waiting_broadcast.set()
         await state.update_data(menu_chat_id=call.message.chat.id, menu_msg_id=call.message.message_id)
         kb = InlineKeyboardMarkup().add(InlineKeyboardButton("⬅️ Назад", callback_data="admin"))
@@ -560,7 +560,7 @@ class AdminHandlers(MessageHandler):
             await call.answer("Доступ ограничен.", show_alert=True)
             return
         
-        from .bot import AdminStates
+        from bot import AdminStates
         await AdminStates.waiting_promo.set()
         await state.update_data(menu_chat_id=call.message.chat.id, menu_msg_id=call.message.message_id)
         kb = InlineKeyboardMarkup().add(InlineKeyboardButton("⬅️ Назад", callback_data=ADMIN_PROMOS))
@@ -608,7 +608,7 @@ class AdminHandlers(MessageHandler):
             await call.answer("Доступ ограничен.", show_alert=True)
             return
 
-        from .bot import AdminStates
+        from bot import AdminStates
         await AdminStates.waiting_search_tg.set()
         await state.update_data(menu_chat_id=call.message.chat.id, menu_msg_id=call.message.message_id)
         

@@ -14,12 +14,12 @@ from aiogram.dispatcher.filters import Text
 import logging
 from logging.handlers import RotatingFileHandler
 
-from .config import BOT_TOKEN, ADMIN_IDS
-from .handlers import UserHandlers, AdminHandlers
-from .middleware import setup_middleware
-from .callbacks import *
-from .db import list_users_with_vpn, list_users_without_vpn, list_users_with_expired_vpn, was_reminder_sent, mark_reminder_sent, was_inactivity_reminder_sent, mark_inactivity_reminder_sent
-from .api import get_session_cached, get_client_info
+from config import BOT_TOKEN, ADMIN_IDS
+from handlers import UserHandlers, AdminHandlers
+from middleware import setup_middleware
+from callbacks import *
+from db import list_users_with_vpn, list_users_without_vpn, list_users_with_expired_vpn, was_reminder_sent, mark_reminder_sent, was_inactivity_reminder_sent, mark_inactivity_reminder_sent
+from api import get_session_cached, get_client_info
 # AnomalyMonitor отключен в основном боте - работает через cron скрипт
 
 # Настройка логирования
@@ -71,7 +71,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
 async def handle_back_main(call: types.CallbackQuery, state: FSMContext):
     await state.finish()
     is_admin = call.from_user.id in ADMIN_IDS
-    from .keyboards import kb_main
+    from keyboards import kb_main
     kb = kb_main(show_trial=user_handlers.compute_show_trial(call.from_user.id), is_admin=is_admin)
     text = (
         "Привет! Ты уже пользовался нашим сервисом!\n\n"
@@ -87,7 +87,7 @@ async def handle_back_main(call: types.CallbackQuery, state: FSMContext):
         "📖 Инструкция и приложения в разделе «Инструкция»\n\n"
         "💬 Есть вопрос или нашли ошибку - обратитесь в раздел «Поддержка»"
     )
-    from .ui import edit_menu_text
+    from ui import edit_menu_text
     await edit_menu_text(call, text, kb)
 
 
