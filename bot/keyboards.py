@@ -1,7 +1,7 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from callbacks import (
     ADMIN, ADMIN_BROADCAST, ADMIN_SEARCH, ADMIN_STATS, ADMIN_PROMOS, ADMIN_PROMO_NEW,
-    BACK_MAIN, BUY, BUY_1M, BUY_3M, BUY_6M, PROMO, GUIDE, GUIDE_PC, GUIDE_MOBILE,
+    BACK_MAIN, BUY, BUY_TEST, BUY_1M, BUY_3M, BUY_6M, PROMO, GUIDE, GUIDE_PC, GUIDE_MOBILE,
     DOSSIER, TRIAL, SUPPORT
 )
 
@@ -20,6 +20,7 @@ def kb_main(show_trial: bool, is_admin: bool) -> InlineKeyboardMarkup:
 
 def kb_buy_menu() -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(InlineKeyboardButton("🧪 Тест — 1₽ (1 день)", callback_data=BUY_TEST))
     kb.add(InlineKeyboardButton("1 месяц — 149₽", callback_data=BUY_1M))
     kb.add(InlineKeyboardButton("3 месяца — 369₽", callback_data=BUY_3M))
     kb.add(InlineKeyboardButton("6 месяца — 649₽", callback_data=BUY_6M))

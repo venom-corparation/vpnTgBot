@@ -13,6 +13,7 @@ DOSSIER = "dossier"
 TRIAL = "trial"
 
 BUY = "buy"
+BUY_TEST = "buy_test"  # Тестовый товар за 1 рубль на 1 день
 BUY_1M = "buy_1m"
 BUY_3M = "buy_3m"
 BUY_6M = "buy_6m"
