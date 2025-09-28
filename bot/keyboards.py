@@ -53,3 +53,11 @@ def admin_kb() -> InlineKeyboardMarkup:
     kb.add(InlineKeyboardButton("⬅️ Назад", callback_data=BACK_MAIN))
     return kb
 
+
+def kb_payment(url: str, pay_id: str) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardMarkup(row_width=1)
+    kb.add(InlineKeyboardButton("Оплатить в ЮKassa", url=url))
+    kb.add(InlineKeyboardButton("Я оплатил — проверить", callback_data=f"pay_check:{pay_id}"))
+    kb.add(InlineKeyboardButton("⬅️ Назад", callback_data=BACK_MAIN))
+    return kb
+

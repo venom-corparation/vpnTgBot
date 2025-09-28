@@ -16,7 +16,7 @@ from payments import create_redirect_payment, get_payment_status
 from db import save_payment, update_payment_status, get_payment, mark_payment_applied
 from api import get_session_cached, check_if_client_exists, get_client_info, add_client_days, extend_client_days, generate_vless_link
 from db import upsert_user_on_start, set_vpn_email, get_user_by_tg, redeem_promo, add_promo, list_users, count_users, count_users_with_vpn, count_promos, sum_promo_uses, list_promos, sync_users_with_xui
-from keyboards import kb_main, kb_buy_menu, kb_promo_back, kb_guide, admin_kb
+from keyboards import kb_main, kb_buy_menu, kb_promo_back, kb_guide, admin_kb, kb_payment
 from ui import edit_menu_text, edit_menu_text_pm
 from callbacks import ADMIN_PROMOS
 
@@ -280,10 +280,7 @@ class UserHandlers(MessageHandler):
                     )
                 except Exception:
                     pass
-                kb = InlineKeyboardMarkup(row_width=1)
-                kb.add(InlineKeyboardButton("Оплатить в ЮKassa", url=url))
-                kb.add(InlineKeyboardButton("Я оплатил — проверить", callback_data=f"pay_check:{pay.get('id') or ''}"))
-                kb.add(InlineKeyboardButton("← Назад", callback_data="back_main"))
+                kb = kb_payment(url, pay.get('id') or '')
                 await edit_menu_text(call, "Перейдите по ссылке для оплаты. После оплаты вернитесь в бот и нажмите ‘Я оплатил — проверить’.", kb)
             else:
                 err = (pay or {}).get("error") if isinstance(pay, dict) else "unknown"
@@ -457,11 +454,9 @@ class UserHandlers(MessageHandler):
             kb = kb_main(show_trial=False, is_admin=is_admin)
             await edit_menu_text(call, f"Оплата подтверждена. Доступ активирован на {days} дн.", kb)
         elif final_status == "canceled":
-            kb = InlineKeyboardMarkup().add(InlineKeyboardButton("← Назад", callback_data="back_main"))
-            await edit_menu_text(call, "Оплата отменена.", kb)
+            await edit_menu_text(call, "Оплата отменена.", kb_promo_back())
         else:
-            kb = InlineKeyboardMarkup().add(InlineKeyboardButton("← Назад", callback_data="back_main"))
-            await edit_menu_text(call, "Платёж пока не подтверждён. Попробуйте позже.", kb)
+            await edit_menu_text(call, "Платёж пока не подтверждён. Попробуйте позже.", kb_promo_back())
 
     async def handle_guide_detail(self, call: types.CallbackQuery, platform: str):
         """Показать детальную инструкцию для платформы."""
