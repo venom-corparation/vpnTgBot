@@ -3,7 +3,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import Optional, Dict, Any
 
-DEFAULT_DB_PATH = "users.db"
+DEFAULT_DB_PATH = "/app/data/users.db"
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS users (

@@ -24,8 +24,8 @@ COPY utils/ ./
 RUN useradd -m -u 1000 botuser && chown -R botuser:botuser /app
 USER botuser
 
-# Создаем директории для логов и бэкапов
-RUN mkdir -p /app/logs /app/backups
+# Создаем директории для логов, бэкапов и данных
+RUN mkdir -p /app/logs /app/backups /app/data
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \

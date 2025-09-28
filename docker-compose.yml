@@ -12,7 +12,7 @@ services:
     volumes:
       - ./logs:/app/logs
       - ./backups:/app/backups
-      - usersdb:/app/users.db
+      - usersdb:/app/data
     networks:
       - vpnbot-network
     healthcheck:
