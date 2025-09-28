@@ -40,7 +40,7 @@ def create_redirect_payment(amount_rub: float, description: str, bot_username: s
     except ImportError as e:
         return {"error": f"yookassa not installed: {e}"}
     try:
-        # Base payment data - упрощенная версия без receipt для лучшей совместимости со СБП
+        # Base payment data
         payment_data = {
             "amount": {
                 "value": f"{amount_rub:.2f}",
@@ -50,15 +50,31 @@ def create_redirect_payment(amount_rub: float, description: str, bot_username: s
                 "type": "redirect",
                 "return_url": YOOKASSA_RETURN_URL or f"https://t.me/{bot_username}",
             },
-            "capture": True,  # Важно: СБП требует capture: true
+            "capture": True,
             "description": description[:128],
             "metadata": {
                 "user_id": user_id
             }
         }
         
-        # Убираем receipt - он может мешать отображению СБП
-        # Receipt можно добавить позже через отдельный API вызов
+        # Add receipt for real payments (not test mode)
+        if not YOOKASSA_SECRET_KEY.startswith("test_"):
+            payment_data["receipt"] = {
+                "customer": {
+                    "email": f"user{user_id}@telegram.bot"
+                },
+                "items": [{
+                    "description": description[:128],
+                    "quantity": "1",
+                    "amount": {
+                        "value": f"{amount_rub:.2f}",
+                        "currency": "RUB"
+                    },
+                    "vat_code": 1,  # НДС 20%
+                    "payment_mode": "full_payment",
+                    "payment_subject": "service"
+                }]
+            }
         
         payment = Payment.create(payment_data, uuid.uuid4())
         raw = payment.json()
@@ -67,7 +83,6 @@ def create_redirect_payment(amount_rub: float, description: str, bot_username: s
             "id": data.get("id"),
             "status": data.get("status"),
             "confirmation_url": data.get("confirmation", {}).get("confirmation_url"),
-            "paid": data.get("paid", False)
         }
     except Exception as e:
         return {"error": str(e)}
