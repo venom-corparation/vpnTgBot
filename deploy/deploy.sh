@@ -28,9 +28,7 @@ if [ ! -f "README.md" ] || [ ! -d "bot" ] || [ ! -d "deploy" ]; then
     exit 1
 fi
 
-# Копируем docker-compose.yml и Dockerfile в корень
-cp deploy/docker-compose.yml .
-cp deploy/Dockerfile .
+# Файлы уже в корне проекта
 
 # Удаляем старые volumes и контейнеры
 echo "🧹 Очистка старых контейнеров и volumes..."
