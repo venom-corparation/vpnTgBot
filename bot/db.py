@@ -428,3 +428,74 @@ def list_promos(db_path: str = DEFAULT_DB_PATH, active_only: bool = True, limit:
                 (limit, offset),
             )
         return [dict(r) for r in cur.fetchall()]
+
+
+def sync_users_with_xui(session, db_path: str = DEFAULT_DB_PATH) -> dict:
+    """
+    Синхронизирует БД с XUI панелью.
+    Возвращает статистику синхронизации.
+    """
+    if not session:
+        return {"error": "No XUI session"}
+    
+    stats = {
+        "users_in_db": 0,
+        "users_in_xui": 0,
+        "synced": 0,
+        "cleared": 0,
+        "errors": 0
+    }
+    
+    try:
+        # Получаем всех пользователей из БД с vpn_email
+        with get_connection(db_path) as conn:
+            cur = conn.execute(
+                "SELECT tg_id, vpn_email FROM users WHERE vpn_email IS NOT NULL AND vpn_email <> ''"
+            )
+            db_users = {row[0]: row[1] for row in cur.fetchall()}
+        
+        stats["users_in_db"] = len(db_users)
+        
+        # Проверяем каждого пользователя в XUI
+        for tg_id, vpn_email in db_users.items():
+            try:
+                if check_if_client_exists(session, tg_id):
+                    # Пользователь есть в XUI - синхронизируем email
+                    if vpn_email != str(tg_id):
+                        set_vpn_email(tg_id, str(tg_id))
+                        stats["synced"] += 1
+                    else:
+                        stats["synced"] += 1
+                else:
+                    # Пользователя нет в XUI - очищаем vpn_email
+                    set_vpn_email(tg_id, None)
+                    stats["cleared"] += 1
+            except Exception as e:
+                logging.error(f"Ошибка синхронизации пользователя {tg_id}: {e}")
+                stats["errors"] += 1
+        
+        # Получаем всех пользователей из XUI
+        url = f"{XUI_URL}/panel/api/inbounds/list"
+        headers = {"Accept": "application/json"}
+        response = session.get(url, headers=headers, timeout=5)
+        response.raise_for_status()
+        inbounds = response.json().get('obj', [])
+        
+        xui_users = set()
+        for inbound in inbounds:
+            settings = inbound.get('settings', {})
+            if isinstance(settings, str):
+                settings = json.loads(settings)
+            clients = settings.get("clients", [])
+            for client in clients:
+                email = client.get('email')
+                if email and email.isdigit():
+                    xui_users.add(int(email))
+        
+        stats["users_in_xui"] = len(xui_users)
+        
+        return stats
+        
+    except Exception as e:
+        logging.error(f"Ошибка синхронизации: {e}")
+        return {"error": str(e)}

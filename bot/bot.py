@@ -214,6 +214,11 @@ async def admin_stats_show(call: types.CallbackQuery, state: FSMContext):
     await admin_handlers.handle_stats(call, state)
 
 
+@dp.callback_query_handler(lambda c: c.data == ADMIN_SYNC, state="*")
+async def admin_sync_run(call: types.CallbackQuery, state: FSMContext):
+    await admin_handlers.handle_sync(call, state)
+
+
 # ========== UTILITY HANDLERS ==========
 
 @dp.message_handler(state=None, content_types=types.ContentTypes.TEXT)

@@ -4,6 +4,7 @@ ADMIN_SEARCH = "admin_search"
 ADMIN_STATS = "admin_stats"
 ADMIN_PROMOS = "admin_promos"
 ADMIN_PROMO_NEW = "admin_promo_new"
+ADMIN_SYNC = "admin_sync"
 
 BACK_MAIN = "back_main"
 

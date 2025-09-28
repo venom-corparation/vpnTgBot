@@ -1,6 +1,6 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from callbacks import (
-    ADMIN, ADMIN_BROADCAST, ADMIN_SEARCH, ADMIN_STATS, ADMIN_PROMOS, ADMIN_PROMO_NEW,
+    ADMIN, ADMIN_BROADCAST, ADMIN_SEARCH, ADMIN_STATS, ADMIN_PROMOS, ADMIN_PROMO_NEW, ADMIN_SYNC,
     BACK_MAIN, BUY, BUY_TEST, BUY_1M, BUY_3M, BUY_6M, PROMO, GUIDE, GUIDE_PC, GUIDE_MOBILE,
     DOSSIER, TRIAL, SUPPORT
 )
@@ -49,6 +49,7 @@ def admin_kb() -> InlineKeyboardMarkup:
     kb.add(InlineKeyboardButton("🔍 Поиск по ID", callback_data=ADMIN_SEARCH))
     kb.add(InlineKeyboardButton("📊 Статистика", callback_data=ADMIN_STATS))
     kb.add(InlineKeyboardButton("🎫 Промокоды", callback_data=ADMIN_PROMOS))
+    kb.add(InlineKeyboardButton("🔄 Синхронизация", callback_data=ADMIN_SYNC))
     kb.add(InlineKeyboardButton("⬅️ Назад", callback_data=BACK_MAIN))
     return kb
 

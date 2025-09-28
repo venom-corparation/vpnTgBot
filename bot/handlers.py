@@ -15,7 +15,7 @@ from config import ADMIN_IDS, PROVIDER_TOKEN, CURRENCY, USE_YOOKASSA
 from payments import create_redirect_payment, get_payment_status
 from db import save_payment, update_payment_status, get_payment, mark_payment_applied
 from api import get_session_cached, check_if_client_exists, get_client_info, add_client_days, extend_client_days, generate_vless_link
-from db import upsert_user_on_start, set_vpn_email, get_user_by_tg, redeem_promo, add_promo, list_users, count_users, count_users_with_vpn, count_promos, sum_promo_uses, list_promos
+from db import upsert_user_on_start, set_vpn_email, get_user_by_tg, redeem_promo, add_promo, list_users, count_users, count_users_with_vpn, count_promos, sum_promo_uses, list_promos, sync_users_with_xui
 from keyboards import kb_main, kb_buy_menu, kb_promo_back, kb_guide, admin_kb
 from ui import edit_menu_text, edit_menu_text_pm
 from callbacks import ADMIN_PROMOS
@@ -109,11 +109,19 @@ class UserHandlers(MessageHandler):
             last_name=tg.last_name,
         )
 
-        # --- Фикс: если пользователь есть в панели XUI, сразу прописываем vpn_email ---
+        # --- Синхронизация БД с XUI ---
         session = get_session_cached()
-        if session and check_if_client_exists(session, tg.id):
-            set_vpn_email(tg.id, str(tg.id))
-        # ---------------------------------------------------------------------------
+        if session:
+            if check_if_client_exists(session, tg.id):
+                # Пользователь есть в XUI - устанавливаем vpn_email
+                set_vpn_email(tg.id, str(tg.id))
+            else:
+                # Пользователя нет в XUI - очищаем vpn_email если был
+                user = get_user_by_tg(tg.id)
+                if user and user.get("vpn_email"):
+                    set_vpn_email(tg.id, None)
+                    logging.info(f"Синхронизация: очищен vpn_email для пользователя {tg.id}")
+        # ---------------------------------
 
         is_vpn = bool(get_user_by_tg(tg.id) and get_user_by_tg(tg.id).get("vpn_email"))
         is_admin = self.is_admin(tg.id)
@@ -149,6 +157,15 @@ class UserHandlers(MessageHandler):
         
         inbound, client = get_client_info(session, call.from_user.id)
         is_admin = self.is_admin(call.from_user.id)
+        
+        # Синхронизация: если пользователя нет в XUI, но есть vpn_email в БД
+        if not inbound or not client:
+            user = get_user_by_tg(call.from_user.id)
+            if user and user.get("vpn_email"):
+                # Очищаем vpn_email в БД, так как пользователя нет в XUI
+                set_vpn_email(call.from_user.id, None)
+                logging.info(f"Синхронизация: очищен vpn_email для пользователя {call.from_user.id}")
+        
         kb = kb_main(show_trial=self.compute_show_trial(call.from_user.id), is_admin=is_admin)
         
         if not inbound or not client:
@@ -744,6 +761,40 @@ class AdminHandlers(MessageHandler):
         kb = InlineKeyboardMarkup(row_width=1)
         kb.add(InlineKeyboardButton("⬅️ Назад", callback_data="admin"))
         await edit_menu_text(call, text, kb)
+
+    async def handle_sync(self, call: types.CallbackQuery, state: FSMContext):
+        """Синхронизировать БД с XUI панелью."""
+        if not self.is_admin(call.from_user.id):
+            await call.answer("Доступ ограничен.", show_alert=True)
+            return
+        
+        await state.finish()
+        session = get_session_cached()
+        if not session:
+            await call.answer("XUI недоступен.", show_alert=True)
+            return
+        
+        await call.answer("Синхронизация...", show_alert=True)
+        
+        try:
+            stats = sync_users_with_xui(session)
+            if "error" in stats:
+                text = f"Ошибка синхронизации: {stats['error']}"
+            else:
+                text = (
+                    f"🔄 Синхронизация завершена:\n\n"
+                    f"• Пользователей в БД: {stats['users_in_db']}\n"
+                    f"• Пользователей в XUI: {stats['users_in_xui']}\n"
+                    f"• Синхронизировано: {stats['synced']}\n"
+                    f"• Очищено: {stats['cleared']}\n"
+                    f"• Ошибок: {stats['errors']}"
+                )
+            
+            await edit_menu_text(call, text, admin_kb())
+            
+        except Exception as e:
+            logging.error(f"Ошибка синхронизации: {e}")
+            await edit_menu_text(call, f"Ошибка синхронизации: {str(e)}", admin_kb())
 
     async def handle_dismiss(self, call: types.CallbackQuery):
         """Удалить сообщение рассылки."""
