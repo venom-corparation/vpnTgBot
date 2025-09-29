@@ -8,7 +8,9 @@ from typing import Optional, Dict
 import json
 import uuid
 from config import YOOKASSA_ACCOUNT_ID, YOOKASSA_SECRET_KEY, YOOKASSA_RETURN_URL, USE_YOOKASSA
-from callbacks import BACK_MAIN
+import logging
+
+_paylog = logging.getLogger("payments")
 
 
 def init_yookassa() -> bool:
@@ -41,7 +43,7 @@ def create_redirect_payment(amount_rub: float, description: str, bot_username: s
     except ImportError as e:
         return {"error": f"yookassa not installed: {e}"}
     try:
-        # Base payment data
+        # Base payment data - упрощенная версия без receipt для лучшей совместимости со СБП
         payment_data = {
             "amount": {
                 "value": f"{amount_rub:.2f}",
@@ -51,41 +53,32 @@ def create_redirect_payment(amount_rub: float, description: str, bot_username: s
                 "type": "redirect",
                 "return_url": YOOKASSA_RETURN_URL or f"https://t.me/{bot_username}",
             },
-            "capture": True,
+            "capture": True,  # Важно: СБП требует capture: true
             "description": description[:128],
             "metadata": {
                 "user_id": user_id
             }
         }
         
-        # Add receipt for real payments (not test mode)
-        if not YOOKASSA_SECRET_KEY.startswith("test_"):
-            payment_data["receipt"] = {
-                "customer": {
-                    "email": f"user{user_id}@telegram.bot"
-                },
-                "items": [{
-                    "description": description[:128],
-                    "quantity": "1",
-                    "amount": {
-                        "value": f"{amount_rub:.2f}",
-                        "currency": "RUB"
-                    },
-                    "vat_code": 1,  # НДС 20%
-                    "payment_mode": "full_payment",
-                    "payment_subject": "service"
-                }]
-            }
+        # Убираем receipt - он может мешать отображению СБП
+        # Receipt можно добавить позже через отдельный API вызов
+        _paylog.info(f"create_payment_request: user_id={user_id}, amount={amount_rub:.2f} RUB, desc='{description[:64]}'")
         
         payment = Payment.create(payment_data, uuid.uuid4())
         raw = payment.json()
         data = json.loads(raw) if isinstance(raw, str) else raw
+        _paylog.info(
+            "create_payment_ok: id=%s status=%s url=%s",
+            data.get("id"), data.get("status"), data.get("confirmation", {}).get("confirmation_url")
+        )
         return {
             "id": data.get("id"),
             "status": data.get("status"),
             "confirmation_url": data.get("confirmation", {}).get("confirmation_url"),
+            "paid": data.get("paid", False)
         }
     except Exception as e:
+        _paylog.error("create_payment_error: %s", str(e))
         return {"error": str(e)}
 
 
@@ -97,6 +90,8 @@ def get_payment_status(payment_id: str) -> Optional[Dict]:
         p = Payment.find_one(payment_id)
         raw = p.json()
         data = json.loads(raw) if isinstance(raw, str) else raw
+        _paylog.info("payment_status: id=%s status=%s paid=%s", payment_id, data.get("status"), bool(data.get("paid")))
         return {"status": data.get("status"), "paid": bool(data.get("paid"))}
     except Exception as e:
+        _paylog.error("payment_status_error: id=%s err=%s", payment_id, str(e))
         return {"error": str(e)}

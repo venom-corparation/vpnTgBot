@@ -413,6 +413,8 @@ class UserHandlers(MessageHandler):
         await edit_menu_text(call, text, kb_guide(), disable_web_page_preview=True)
 
     async def handle_pay_check(self, call: types.CallbackQuery, payment_id: str):
+        paid = False
+        status = "unknown"
         if not payment_id:
             await call.answer("Не найден платеж.", show_alert=True)
             return
@@ -423,6 +425,8 @@ class UserHandlers(MessageHandler):
             info = get_payment_status(payment_id) or {}
             if isinstance(info, dict) and info.get("error"):
                 final_status = "unknown"
+                paid = False
+                status = "unknown"
             else:
                 status = (info or {}).get("status") or "unknown"
                 paid = bool((info or {}).get("paid"))

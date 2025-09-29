@@ -36,6 +36,20 @@ if not _payments_logger.handlers:
     _payments_logger.addHandler(_handler)
     _payments_logger.setLevel(logging.INFO)
 
+# Дополнительный файловый лог для бота (общие события/уведомления)
+_bot_file_logger = logging.getLogger("bot_file")
+if not _bot_file_logger.handlers:
+    import os
+    os.makedirs("logs", exist_ok=True)
+    _bot_handler = RotatingFileHandler("logs/bot.log", maxBytes=2_000_000, backupCount=5)
+    _bot_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s:%(name)s:%(message)s"))
+    _bot_file_logger.addHandler(_bot_handler)
+    _bot_file_logger.setLevel(logging.INFO)
+    # Пишем все логи приложения в файл через корневой логгер
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    root_logger.addHandler(_bot_handler)
+
 # Инициализация бота
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(bot, storage=MemoryStorage())
@@ -236,16 +250,24 @@ if __name__ == "__main__":
 
     async def _periodic_worker():
         """Reminders about subscription expiry and inactivity. Runs every 6 hours to reduce API load."""
+        _bot_file_logger.info("Periodic worker started")
         while True:
             try:
                 now = datetime.utcnow()
+
+                # Счётчики итогов прохода
+                cnt_sent_3d = 0
+                cnt_sent_expired = 0
+                cnt_sent_inactive2d = 0
+                cnt_sent_expired_inactive2d = 0
+                cnt_errors = 0
 
                 # 1. Напоминания об истечении подписки
                 session = get_session_cached()
                 if session:
                     three_days_ms = 3 * 24 * 60 * 60 * 1000
                     users = list_users_with_vpn()
-                    
+
                     # Обрабатываем пользователей батчами по 50 для снижения нагрузки
                     for i in range(0, len(users), 50):
                         batch = users[i:i+50]
@@ -255,38 +277,41 @@ if __name__ == "__main__":
                                 email = u.get('vpn_email')
                                 if not email:
                                     continue
-                                
+
                                 # Получаем информацию о клиенте (с кэшированием)
                                 inbound, client = get_client_info(session, email)
                                 if not client:
                                     continue
-                                
+
                                 expiry_ms = int(client.get('expiryTime') or 0)
                                 if expiry_ms <= 0:
                                     continue
-                                
+
                                 now_ms = int(now.timestamp() * 1000)
                                 delta = expiry_ms - now_ms
-                                
+
                                 # Напоминание за 3 дня (точное время)
                                 if 0 < delta <= three_days_ms and not was_reminder_sent(tg, expiry_ms, '3d'):
                                     remaining_days = max(1, int(delta // (24*60*60*1000)))
                                     remaining_hours = int((delta % (24*60*60*1000)) // (60*60*1000))
-                                    
+
                                     if remaining_days == 1:
                                         text = f"⏰ Напоминание: доступ истекает через {remaining_hours} ч.\n\nПродлите подписку в разделе «Оплатить»."
                                     else:
                                         text = f"⏰ Напоминание: доступ истекает через {remaining_days} дн.\n\nПродлите подписку в разделе «Оплатить»."
-                                    
+
                                     kb = types.InlineKeyboardMarkup().add(
                                         types.InlineKeyboardButton("OK", callback_data=DISMISS)
                                     )
                                     try:
+                                        _bot_file_logger.info(f"notify_3d: tg={tg}, expiry_ms={expiry_ms}")
                                         await bot.send_message(tg, text, reply_markup=kb)
                                         mark_reminder_sent(tg, expiry_ms, '3d')
-                                    except Exception:
-                                        pass
-                                
+                                        cnt_sent_3d += 1
+                                    except Exception as e:
+                                        cnt_errors += 1
+                                        _bot_file_logger.info(f"notify_3d_failed: tg={tg}, err={e}")
+
                                 # Уведомление при истечении (в день истечения)
                                 elif delta <= 0 and not was_reminder_sent(tg, expiry_ms, 'expired'):
                                     text = "❌ Ваша подписка истекла!\n\nПродлите доступ в разделе «Оплатить», чтобы продолжить пользоваться VPN."
@@ -294,13 +319,17 @@ if __name__ == "__main__":
                                         types.InlineKeyboardButton("OK", callback_data=DISMISS)
                                     )
                                     try:
+                                        _bot_file_logger.info(f"notify_expired: tg={tg}, expiry_ms={expiry_ms}")
                                         await bot.send_message(tg, text, reply_markup=kb)
                                         mark_reminder_sent(tg, expiry_ms, 'expired')
-                                    except Exception:
-                                        pass
-                            except Exception:
+                                        cnt_sent_expired += 1
+                                    except Exception as e:
+                                        cnt_errors += 1
+                                        _bot_file_logger.info(f"notify_expired_failed: tg={tg}, err={e}")
+                            except Exception as e:
+                                cnt_errors += 1
                                 continue
-                        
+
                         # Небольшая пауза между батчами
                         await asyncio.sleep(1)
 
@@ -312,13 +341,12 @@ if __name__ == "__main__":
                         date_registered = u.get('date_registered')
                         if not date_registered:
                             continue
-                        
+
                         # Проверяем, прошло ли 2 дня с регистрации
-                        from datetime import datetime
                         try:
                             reg_date = datetime.fromisoformat(date_registered.replace('Z', '+00:00'))
                             days_since_reg = (now - reg_date.replace(tzinfo=None)).days
-                            
+
                             # Отправляем уведомление через 2 дня после регистрации
                             if days_since_reg == 2 and not was_inactivity_reminder_sent(tg, days_since_reg):
                                 text = (
@@ -332,14 +360,18 @@ if __name__ == "__main__":
                                     types.InlineKeyboardButton("OK", callback_data=DISMISS)
                                 )
                                 try:
+                                    _bot_file_logger.info(f"notify_inactive_2d: tg={tg}")
                                     await bot.send_message(tg, text, reply_markup=kb)
                                     mark_inactivity_reminder_sent(tg, days_since_reg)
-                                except Exception:
-                                    pass
+                                    cnt_sent_inactive2d += 1
+                                except Exception as e:
+                                    cnt_errors += 1
+                                    _bot_file_logger.info(f"notify_inactive_2d_failed: tg={tg}, err={e}")
                         except ValueError:
                             # Если не удалось распарсить дату, пропускаем
                             continue
                     except Exception:
+                        cnt_errors += 1
                         continue
 
                 # 3. Уведомления о неактивности после истечения (пользователи с истекшей подпиской)
@@ -350,23 +382,23 @@ if __name__ == "__main__":
                         email = u.get('vpn_email')
                         if not email:
                             continue
-                        
+
                         # Получаем информацию о клиенте
                         inbound, client = get_client_info(session, email)
                         if not client:
                             continue
-                        
+
                         expiry_ms = int(client.get('expiryTime') or 0)
                         if expiry_ms <= 0:
                             continue
-                        
+
                         now_ms = int(now.timestamp() * 1000)
                         delta = expiry_ms - now_ms
-                        
+
                         # Если подписка истекла
                         if delta <= 0:
                             days_expired = abs(int(delta // (24*60*60*1000)))
-                            
+
                             # Отправляем уведомление через 2 дня после истечения
                             if days_expired == 2 and not was_inactivity_reminder_sent(tg, f"expired_{days_expired}"):
                                 text = (
@@ -380,17 +412,28 @@ if __name__ == "__main__":
                                     types.InlineKeyboardButton("OK", callback_data=DISMISS)
                                 )
                                 try:
+                                    _bot_file_logger.info(f"notify_expired_inactive_2d: tg={tg}")
                                     await bot.send_message(tg, text, reply_markup=kb)
                                     mark_inactivity_reminder_sent(tg, f"expired_{days_expired}")
-                                except Exception:
-                                    pass
+                                    cnt_sent_expired_inactive2d += 1
+                                except Exception as e:
+                                    cnt_errors += 1
+                                    _bot_file_logger.info(f"notify_expired_inactive_2d_failed: tg={tg}, err={e}")
                     except Exception:
+                        cnt_errors += 1
                         continue
+
+                _bot_file_logger.info(
+                    f"periodic_totals: 3d={cnt_sent_3d}, expired={cnt_sent_expired}, "
+                    f"inactive2d={cnt_sent_inactive2d}, expired_inactive2d={cnt_sent_expired_inactive2d}, "
+                    f"errors={cnt_errors}"
+                )
 
                 # Запускаем каждые 6 часов вместо каждого часа для снижения нагрузки
                 await asyncio.sleep(6 * 3600)  # 6 часов
             except Exception as e:
                 logger.warning("Periodic worker error: %s", e)
+                _bot_file_logger.info(f"periodic_error: {e}")
                 await asyncio.sleep(1800)  # 30 минут при ошибке
 
     async def _on_startup(_: Dispatcher):
