@@ -823,6 +823,18 @@ class AdminHandlers(MessageHandler):
             return
         await state.finish()
         try:
+            base_dir = "/app/logs"
+            bot_path = os.path.join(base_dir, 'bot.log')
+            pay_path = os.path.join(base_dir, 'payments.log')
+            # ensure files exist
+            os.makedirs(base_dir, exist_ok=True)
+            for p in (bot_path, pay_path):
+                try:
+                    if not os.path.exists(p):
+                        open(p, 'a', encoding='utf-8').close()
+                except Exception:
+                    pass
+
             def tail(path: str, lines: int = 50) -> str:
                 try:
                     with open(path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -832,15 +844,46 @@ class AdminHandlers(MessageHandler):
                     return '(файл не найден)'
                 except Exception as e:
                     return f'(ошибка чтения: {e})'
-            bot_log = tail('logs/bot.log', 50)
-            pay_log = tail('logs/payments.log', 50)
+
+            bot_log_raw = tail(bot_path, 50)
+            pay_log_raw = tail(pay_path, 50)
+
+            # Prepare safe HTML with hard caps
+            def safe_clip(s: str, cap: int = 1800) -> str:
+                from html import escape
+                s = escape(s)
+                if len(s) > cap:
+                    return s[-cap:]
+                return s
+
+            bot_clip = safe_clip(bot_log_raw, 1800)
+            pay_clip = safe_clip(pay_log_raw, 1800)
+
             text = (
                 "Последние логи:\n\n"
                 "🧾 bot.log (50 строк):\n"
-                f"<pre><code>{html.escape(bot_log[-3500:])}</code></pre>\n\n"
+                f"<pre><code>{bot_clip}</code></pre>\n\n"
                 "💳 payments.log (50 строк):\n"
-                f"<pre><code>{html.escape(pay_log[-3500:])}</code></pre>"
+                f"<pre><code>{pay_clip}</code></pre>"
             )
+
+            # If still too long for Telegram, fallback to sending documents
+            if len(text) > 3800:
+                kb = InlineKeyboardMarkup(row_width=1)
+                kb.add(InlineKeyboardButton("⬅️ Назад", callback_data="admin"))
+                await edit_menu_text_pm(call, "Логи большие — отправляю файлами ниже.", kb, parse_mode="HTML")
+                try:
+                    from aiogram.types import InputFile
+                    await self.bot.send_document(call.message.chat.id, InputFile(bot_path), caption="bot.log (последний файл)")
+                except Exception:
+                    pass
+                try:
+                    from aiogram.types import InputFile
+                    await self.bot.send_document(call.message.chat.id, InputFile(pay_path), caption="payments.log (последний файл)")
+                except Exception:
+                    pass
+                return
+
             kb = InlineKeyboardMarkup(row_width=1)
             kb.add(InlineKeyboardButton("⬅️ Назад", callback_data="admin"))
             await edit_menu_text_pm(call, text, kb, parse_mode="HTML")
