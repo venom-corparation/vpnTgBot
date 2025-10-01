@@ -50,6 +50,7 @@ def admin_kb() -> InlineKeyboardMarkup:
     kb.add(InlineKeyboardButton("📊 Статистика", callback_data=ADMIN_STATS))
     kb.add(InlineKeyboardButton("🎫 Промокоды", callback_data=ADMIN_PROMOS))
     kb.add(InlineKeyboardButton("🔄 Синхронизация", callback_data=ADMIN_SYNC))
+    kb.add(InlineKeyboardButton("🧾 Логи (последние)", callback_data="admin_logs"))
     kb.add(InlineKeyboardButton("⬅️ Назад", callback_data=BACK_MAIN))
     return kb
 
