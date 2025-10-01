@@ -23,7 +23,7 @@ from api import get_session_cached, get_client_info
 # AnomalyMonitor отключен в основном боте - работает через cron скрипт
 
 # Настройка логирования
-logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s:%(name)s:%(message)s")
 logger = logging.getLogger(__name__)
 
 # Дополнительный журнал для платежей (с ротацией)
@@ -231,6 +231,10 @@ async def admin_stats_show(call: types.CallbackQuery, state: FSMContext):
 @dp.callback_query_handler(lambda c: c.data == ADMIN_SYNC, state="*")
 async def admin_sync_run(call: types.CallbackQuery, state: FSMContext):
     await admin_handlers.handle_sync(call, state)
+
+@dp.callback_query_handler(lambda c: c.data == "admin_logs", state="*")
+async def admin_logs_show(call: types.CallbackQuery, state: FSMContext):
+    await admin_handlers.handle_admin_logs(call, state)
 
 
 # ========== UTILITY HANDLERS ==========

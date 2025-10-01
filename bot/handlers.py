@@ -10,6 +10,7 @@ from aiogram.dispatcher import FSMContext
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice
 from aiogram.utils.exceptions import MessageNotModified
 import logging
+import os
 
 from config import ADMIN_IDS, PROVIDER_TOKEN, CURRENCY, USE_YOOKASSA
 from payments import create_redirect_payment, get_payment_status
@@ -528,7 +529,16 @@ class AdminHandlers(MessageHandler):
             await call.answer("Доступ ограничен.", show_alert=True)
             return
         await state.finish()
-        await edit_menu_text(call, "Панель управления", admin_kb())
+        # Добавляем кнопку 'Логи' динамически
+        kb = InlineKeyboardMarkup(row_width=1)
+        kb.add(InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast"))
+        kb.add(InlineKeyboardButton("🔍 Поиск по ID", callback_data="admin_search"))
+        kb.add(InlineKeyboardButton("📊 Статистика", callback_data="admin_stats"))
+        kb.add(InlineKeyboardButton("🎫 Промокоды", callback_data="admin_promos"))
+        kb.add(InlineKeyboardButton("🔄 Синхронизация", callback_data="admin_sync"))
+        kb.add(InlineKeyboardButton("🧾 Логи (последние)", callback_data="admin_logs"))
+        kb.add(InlineKeyboardButton("⬅️ Назад", callback_data="back_main"))
+        await edit_menu_text(call, "Панель управления", kb)
 
     async def handle_broadcast_start(self, call: types.CallbackQuery, state: FSMContext):
         """Начать рассылку."""
@@ -805,3 +815,31 @@ class AdminHandlers(MessageHandler):
         except Exception:
             pass
         await call.answer()
+
+    async def handle_admin_logs(self, call: types.CallbackQuery, state: FSMContext):
+        """Показать последние строки логов."""
+        if not self.is_admin(call.from_user.id):
+            await call.answer("Доступ ограничен.", show_alert=True)
+            return
+        await state.finish()
+        def tail(path: str, lines: int = 50) -> str:
+            try:
+                with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                    data = f.readlines()
+                    return ''.join(data[-lines:]) if data else '(пусто)'
+            except FileNotFoundError:
+                return '(файл не найден)'
+            except Exception as e:
+                return f'(ошибка чтения: {e})'
+        bot_log = tail('logs/bot.log', 50)
+        pay_log = tail('logs/payments.log', 50)
+        text = (
+            "Последние логи:\n\n"
+            "🧾 bot.log (50 строк):\n"
+            f"<pre><code>{html.escape(bot_log[-3500:])}</code></pre>\n\n"
+            "💳 payments.log (50 строк):\n"
+            f"<pre><code>{html.escape(pay_log[-3500:])}</code></pre>"
+        )
+        kb = InlineKeyboardMarkup(row_width=1)
+        kb.add(InlineKeyboardButton("⬅️ Назад", callback_data="admin"))
+        await edit_menu_text_pm(call, text, kb, parse_mode="HTML")
