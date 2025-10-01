@@ -2,6 +2,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Optional, Dict, Any
+import logging
 
 DEFAULT_DB_PATH = "/app/data/users.db"
 

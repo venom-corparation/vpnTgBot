@@ -822,24 +822,28 @@ class AdminHandlers(MessageHandler):
             await call.answer("Доступ ограничен.", show_alert=True)
             return
         await state.finish()
-        def tail(path: str, lines: int = 50) -> str:
-            try:
-                with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-                    data = f.readlines()
-                    return ''.join(data[-lines:]) if data else '(пусто)'
-            except FileNotFoundError:
-                return '(файл не найден)'
-            except Exception as e:
-                return f'(ошибка чтения: {e})'
-        bot_log = tail('logs/bot.log', 50)
-        pay_log = tail('logs/payments.log', 50)
-        text = (
-            "Последние логи:\n\n"
-            "🧾 bot.log (50 строк):\n"
-            f"<pre><code>{html.escape(bot_log[-3500:])}</code></pre>\n\n"
-            "💳 payments.log (50 строк):\n"
-            f"<pre><code>{html.escape(pay_log[-3500:])}</code></pre>"
-        )
-        kb = InlineKeyboardMarkup(row_width=1)
-        kb.add(InlineKeyboardButton("⬅️ Назад", callback_data="admin"))
-        await edit_menu_text_pm(call, text, kb, parse_mode="HTML")
+        try:
+            def tail(path: str, lines: int = 50) -> str:
+                try:
+                    with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                        data = f.readlines()
+                        return ''.join(data[-lines:]) if data else '(пусто)'
+                except FileNotFoundError:
+                    return '(файл не найден)'
+                except Exception as e:
+                    return f'(ошибка чтения: {e})'
+            bot_log = tail('logs/bot.log', 50)
+            pay_log = tail('logs/payments.log', 50)
+            text = (
+                "Последние логи:\n\n"
+                "🧾 bot.log (50 строк):\n"
+                f"<pre><code>{html.escape(bot_log[-3500:])}</code></pre>\n\n"
+                "💳 payments.log (50 строк):\n"
+                f"<pre><code>{html.escape(pay_log[-3500:])}</code></pre>"
+            )
+            kb = InlineKeyboardMarkup(row_width=1)
+            kb.add(InlineKeyboardButton("⬅️ Назад", callback_data="admin"))
+            await edit_menu_text_pm(call, text, kb, parse_mode="HTML")
+        except Exception as e:
+            logging.error(f"admin_logs_error: {e}")
+            await call.answer("Не удалось показать логи.", show_alert=True)
