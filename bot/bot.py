@@ -120,7 +120,12 @@ async def handle_buy(call: types.CallbackQuery):
     await user_handlers.handle_buy(call)
 
 
-@dp.callback_query_handler(lambda c: c.data in (BUY_TEST, BUY_1M, BUY_3M, BUY_6M))
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith(f"{BUY_SERVICE}:"))
+async def handle_buy_service(call: types.CallbackQuery):
+    await user_handlers.handle_buy_service(call)
+
+
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith(f"{BUY_PLAN}:"))
 async def handle_buy_plan(call: types.CallbackQuery):
     await user_handlers.handle_buy_plan(call)
 

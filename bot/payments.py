@@ -61,6 +61,23 @@ def create_redirect_payment(amount_rub: float, description: str, bot_username: s
         }
         
         # Убираем receipt - он может мешать отображению СБП
+        if not YOOKASSA_SECRET_KEY.startswith("test_"):
+            payment_data["receipt"] = {
+                "customer": {
+                    "email": f"user{user_id}@telegram.bot"
+                },
+                "items": [{
+                    "description": description[:128],
+                    "quantity": "1",
+                    "amount": {
+                        "value": f"{amount_rub:.2f}",
+                        "currency": "RUB"
+                    },
+                    "vat_code": 1,  # НДС 20%
+                    "payment_mode": "full_payment",
+                    "payment_subject": "service"
+                }]
+            }
         # Receipt можно добавить позже через отдельный API вызов
         _paylog.info(f"create_payment_request: user_id={user_id}, amount={amount_rub:.2f} RUB, desc='{description[:64]}'")
         

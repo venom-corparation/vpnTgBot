@@ -1,9 +1,11 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from callbacks import (
     ADMIN, ADMIN_BROADCAST, ADMIN_SEARCH, ADMIN_STATS, ADMIN_PROMOS, ADMIN_PROMO_NEW, ADMIN_SYNC,
-    BACK_MAIN, BUY, BUY_TEST, BUY_1M, BUY_3M, BUY_6M, PROMO, GUIDE, GUIDE_PC, GUIDE_MOBILE,
+    BACK_MAIN, BUY, BUY_SERVICE, BUY_PLAN, PROMO, GUIDE, GUIDE_PC, GUIDE_MOBILE,
     DOSSIER, TRIAL, SUPPORT
 )
+
+from tariffs import TariffService, all_services
 
 
 def kb_main(show_trial: bool, is_admin: bool) -> InlineKeyboardMarkup:
@@ -19,12 +21,29 @@ def kb_main(show_trial: bool, is_admin: bool) -> InlineKeyboardMarkup:
 
 
 def kb_buy_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
+    """Keyboard for selecting a tariff service (Standard / Обход ...)."""
     kb = InlineKeyboardMarkup(row_width=1)
-    if is_admin:
-        kb.add(InlineKeyboardButton("🧪 Тест — 1₽ (1 день)", callback_data=BUY_TEST))
-    kb.add(InlineKeyboardButton("1 месяц — 149₽", callback_data=BUY_1M))
-    kb.add(InlineKeyboardButton("3 месяца — 369₽", callback_data=BUY_3M))
-    kb.add(InlineKeyboardButton("6 месяца — 649₽", callback_data=BUY_6M))
+    for service in all_services():
+        kb.add(
+            InlineKeyboardButton(
+                f"{service.name}",
+                callback_data=f"{BUY_SERVICE}:{service.key}"
+            )
+        )
+    kb.add(InlineKeyboardButton("⬅️ Назад", callback_data=BACK_MAIN))
+    return kb
+
+
+def kb_buy_plans(service: TariffService, is_admin: bool = False) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardMarkup(row_width=1)
+    for plan in service.plans_for_user(is_admin):
+        kb.add(
+            InlineKeyboardButton(
+                plan.label,
+                callback_data=f"{BUY_PLAN}:{service.key}:{plan.key}"
+            )
+        )
+    kb.add(InlineKeyboardButton("⬅️ К тарифам", callback_data=BUY))
     kb.add(InlineKeyboardButton("⬅️ Назад", callback_data=BACK_MAIN))
     return kb
 

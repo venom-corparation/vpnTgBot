@@ -5,6 +5,7 @@ import logging
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from config import XUI_URL, XUI_USER, XUI_PASSWORD, XUI_HOST, XUI_USERNAME, XUI_PASSWORD, SERVER_HOST, SERVER_PORT, REALITY_PBK, REALITY_SID, REALITY_SNI, REALITY_FP, XUI_LOGIN_RETRIES, XUI_LOGIN_TIMEOUT, XUI_LOGIN_COOLDOWN_SEC, CLIENT_INFO_TTL_SEC
+from tariffs import get_service_by_inbound_id
 import random
 import time
 import os
@@ -112,7 +113,7 @@ def add_client(session, telegram_id, months):
         logging.error(f"Ошибка при добавлении клиента: {e}")
         return {"error": str(e), "client_id": None}
 
-def add_client_days(session, telegram_id, days):
+def add_client_days(session, telegram_id, days, inbound_id: int = 1, email: str = None):
     """Создать клиента на указанное число дней (days). Возвращает client_id и результат."""
     if days is None or int(days) <= 0:
         raise ValueError("Необходимо указать положительное число дней")
@@ -121,8 +122,8 @@ def add_client_days(session, telegram_id, days):
     client_id = str(uuid.uuid4())
     now = datetime.now()
     expiry_dt = int((now + relativedelta(days=days)).timestamp() * 1000)
-    email = str(telegram_id)
-    if check_if_client_exists(session, telegram_id):
+    email = email or str(telegram_id)
+    if check_if_client_exists(session, email, inbound_id=inbound_id):
         logging.warning(f"Клиент с email={email} уже существует. Пропускаем создание.")
         return {"error": "Client already exists", "client_id": None}
     settings = {
@@ -140,7 +141,7 @@ def add_client_days(session, telegram_id, days):
         }]
     }
     data = {
-        "id": 1,
+        "id": inbound_id,
         "settings": json.dumps(settings)
     }
     try:
@@ -152,16 +153,18 @@ def add_client_days(session, telegram_id, days):
         logging.error(f"Ошибка при добавлении клиента: {e}")
         return {"error": str(e), "client_id": None}
 
-def check_if_client_exists(session, telegram_id):
-    """Проверить, есть ли клиент с таким email (telegram_id)."""
+def check_if_client_exists(session, identifier, inbound_id: int = None):
+    """Проверить, есть ли клиент с таким email (или telegram_id)."""
     url = f"{XUI_URL}/panel/api/inbounds/list"
     headers = {"Accept": "application/json"}
-    email = str(telegram_id)
+    email = str(identifier)
     try:
         response = session.get(url, headers=headers, timeout=5)
         response.raise_for_status()
         inbounds = response.json().get('obj', [])
         for inbound in inbounds:
+            if inbound_id is not None and int(inbound.get('id')) != int(inbound_id):
+                continue
             settings = inbound.get('settings', {})
             if isinstance(settings, str):
                 settings = json.loads(settings)
@@ -174,7 +177,7 @@ def check_if_client_exists(session, telegram_id):
         logging.error(f"Ошибка при проверке существования клиента: {e}")
         return False
 
-def get_client_info(session, telegram_id):
+def get_client_info(session, identifier, inbound_id: int = None):
     """
     Получить inbound_id и client по email (telegram_id).
     """
@@ -182,7 +185,7 @@ def get_client_info(session, telegram_id):
     import logging
     url = f"{XUI_URL}/panel/api/inbounds/list"
     headers = {"Accept": "application/json"}
-    email = str(telegram_id)
+    email = str(identifier)
     # serve from cache if fresh
     now_ts = time.time()
     cached = _CLIENT_CACHE.get(email)
@@ -192,7 +195,9 @@ def get_client_info(session, telegram_id):
     response.raise_for_status()
     inbounds = response.json().get('obj', [])
     for inbound in inbounds:
-        inbound_id = inbound.get('id')
+        inbound_id_value = inbound.get('id')
+        if inbound_id is not None and int(inbound_id_value) != int(inbound_id):
+            continue
         settings = inbound.get('settings', {})
         if isinstance(settings, str):
             settings = json.loads(settings)
@@ -213,30 +218,152 @@ def invalidate_client_cache(email: str):
 def generate_vless_link(inbound: dict, client: dict) -> str:
     """Собирает VLESS Reality ссылку по данным inbound и client (как в панели)."""
     import json
-    port = inbound.get('port') or SERVER_PORT
-    host = inbound.get('listen') or inbound.get('remark') or SERVER_HOST
-    if not host or host == "vles":
-        host = SERVER_HOST
+
+    def _ensure_dict(value):
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                return {}
+        return value or {}
+
+    def _first_non_empty(*candidates):
+        for candidate in candidates:
+            if isinstance(candidate, (list, tuple)):
+                for item in candidate:
+                    if isinstance(item, str) and item.strip():
+                        return item.strip()
+            elif isinstance(candidate, str):
+                stripped = candidate.strip()
+                if not stripped:
+                    continue
+                if stripped.startswith('[') or stripped.startswith('{'):
+                    try:
+                        parsed = json.loads(stripped)
+                        if isinstance(parsed, (list, tuple)):
+                            for item in parsed:
+                                if isinstance(item, str) and item.strip():
+                                    return item.strip()
+                        elif isinstance(parsed, str) and parsed.strip():
+                            return parsed.strip()
+                        continue
+                    except json.JSONDecodeError:
+                        pass
+                return stripped
+        return None
+
     email = client.get('email')
     uuid = client.get('id')
-    flow = client.get('flow', '')
-    stream_settings = inbound.get('streamSettings')
-    if isinstance(stream_settings, str):
-        stream_settings = json.loads(stream_settings)
+    flow = (client.get('flow') or '').strip()
+
+    stream_settings = _ensure_dict(inbound.get('streamSettings'))
     security = stream_settings.get('security', 'reality')
     network = stream_settings.get('network', 'tcp')
-    reality_settings = stream_settings.get('realitySettings', {})
-    if isinstance(reality_settings, str):
-        reality_settings = json.loads(reality_settings)
-    public_key = reality_settings.get('publicKey', '') or REALITY_PBK
-    short_ids = reality_settings.get('shortIds', [])
-    short_id = short_ids[0] if short_ids else REALITY_SID
-    server_names = reality_settings.get('serverNames', [])
-    sni = server_names[0] if server_names else REALITY_SNI
-    fp = REALITY_FP
+
+    reality_settings = _ensure_dict(stream_settings.get('realitySettings'))
+    nested_settings = _ensure_dict(reality_settings.get('settings'))
+
+    dest_value = _first_non_empty(
+        reality_settings.get('dest'),
+        nested_settings.get('dest'),
+    )
+    dest_host = None
+    dest_port = None
+    if isinstance(dest_value, str):
+        dest_clean = dest_value.strip()
+        if dest_clean:
+            if ':' in dest_clean:
+                host_part, port_part = dest_clean.split(':', 1)
+                if host_part.strip():
+                    dest_host = host_part.strip()
+                port_part = port_part.strip()
+                if port_part.isdigit():
+                    dest_port = int(port_part)
+            else:
+                dest_host = dest_clean
+
+    inbound_id = inbound.get('id')
+    service = get_service_by_inbound_id(inbound_id)
+
+    def _sanitize_host(candidate):
+        if not candidate:
+            return None
+        candidate = str(candidate).strip()
+        if not candidate:
+            return None
+        if candidate.startswith('[') or candidate.startswith('{'):
+            return None
+        if any(ch in candidate for ch in ' /\\'):
+            return None
+        if '.' not in candidate and not any(ch.isdigit() for ch in candidate):
+            return None
+        return candidate
+
+    host_candidates = [
+        getattr(service, "server_host", None) if service else None,
+        inbound.get('listen'),
+        inbound.get('remark'),
+        SERVER_HOST,
+        dest_host,
+    ]
+
+    host = None
+    for candidate in host_candidates:
+        sanitized = _sanitize_host(candidate)
+        if sanitized:
+            host = sanitized
+            break
+    if not host:
+        host = SERVER_HOST
+
+    port_value = inbound.get('port')
+    try:
+        port = int(port_value)
+    except (TypeError, ValueError):
+        port = None
+    if port is None and dest_port is not None:
+        port = dest_port
+    if port is None:
+        port = SERVER_PORT
+
+    public_key = _first_non_empty(
+        reality_settings.get('publicKey'),
+        nested_settings.get('publicKey'),
+        REALITY_PBK,
+    )
+    short_id = _first_non_empty(
+        reality_settings.get('shortIds'),
+        nested_settings.get('shortIds'),
+        reality_settings.get('shortId'),
+        nested_settings.get('shortId'),
+        REALITY_SID,
+    )
+    sni = _first_non_empty(
+        reality_settings.get('serverNames'),
+        nested_settings.get('serverNames'),
+        reality_settings.get('serverName'),
+        nested_settings.get('serverName'),
+        reality_settings.get('sni'),
+        nested_settings.get('sni'),
+        REALITY_SNI,
+    )
+    fingerprint = _first_non_empty(
+        stream_settings.get('fingerprint'),
+        reality_settings.get('fingerprint'),
+        nested_settings.get('fingerprint'),
+        reality_settings.get('fp'),
+        nested_settings.get('fp'),
+        REALITY_FP,
+    )
+
+    public_key = public_key or REALITY_PBK
+    short_id = short_id or REALITY_SID
+    sni = sni or REALITY_SNI
+    fingerprint = fingerprint or REALITY_FP
+
     return (
         f"vless://{uuid}@{host}:{port}?type={network}&security={security}"
-        f"&pbk={public_key}&fp={fp}&sni={sni}&sid={short_id}&spx=%2F&flow={flow}#vles-{email}"
+        f"&pbk={public_key}&fp={fingerprint}&sni={sni}&sid={short_id}&spx=%2F&flow={flow}#vles-{email}"
     )
 
 def remove_client(session, telegram_id):
@@ -328,7 +455,7 @@ def extend_client(session, telegram_id, months):
         logging.error(f"Ошибка при продлении клиента: {e}")
     return False
 
-def extend_client_days(session, telegram_id, days: int) -> bool:
+def extend_client_days(session, telegram_id, days: int, inbound_id: int = None, email: str = None) -> bool:
     """Продлить срок действия клиента на указанное число дней. Не создаёт нового клиента.
     Логика: найти inbound+client по email (telegram_id), взять max(now, currentExpiry) + days.
     """
@@ -336,14 +463,16 @@ def extend_client_days(session, telegram_id, days: int) -> bool:
         return False
     url_list = f"{XUI_URL}/panel/api/inbounds/list"
     headers = {"Accept": "application/json", "Content-Type": "application/json"}
-    email = str(telegram_id)
+    email = email or str(telegram_id)
     try:
         response = session.get(url_list, headers=headers)
         response.raise_for_status()
         inbounds = response.json().get('obj', [])
         for inbound in inbounds:
+            inbound_id_value = inbound.get('id')
+            if inbound_id is not None and int(inbound_id_value) != int(inbound_id):
+                continue
             settings = inbound.get('settings', {})
-            inbound_id = inbound.get('id')
             if isinstance(settings, str):
                 settings = json.loads(settings)
             clients = settings.get("clients", [])
@@ -364,7 +493,7 @@ def extend_client_days(session, telegram_id, days: int) -> bool:
                         updated_client['limitIp'] = 1
                     settings_obj = {"clients": [updated_client]}
                     upd_url = f"{XUI_URL}/panel/api/inbounds/updateClient/{client_id}"
-                    data = {"id": inbound_id, "settings": json.dumps(settings_obj)}
+                    data = {"id": inbound_id_value, "settings": json.dumps(settings_obj)}
                     upd_resp = session.post(upd_url, json=data, headers=headers)
                     logging.info("Ответ XUI: %s", getattr(upd_resp, 'text', ''))
                     upd_resp.raise_for_status()

@@ -16,9 +16,10 @@ from payments import create_redirect_payment, get_payment_status
 from db import save_payment, update_payment_status, get_payment, mark_payment_applied
 from api import get_session_cached, check_if_client_exists, get_client_info, add_client_days, extend_client_days, generate_vless_link
 from db import upsert_user_on_start, set_vpn_email, get_user_by_tg, redeem_promo, add_promo, list_users, count_users, count_users_with_vpn, count_promos, sum_promo_uses, list_promos, sync_users_with_xui
-from keyboards import kb_main, kb_buy_menu, kb_promo_back, kb_guide, admin_kb, kb_payment
+from keyboards import kb_main, kb_buy_menu, kb_buy_plans, kb_promo_back, kb_guide, admin_kb, kb_payment
 from ui import edit_menu_text, edit_menu_text_pm
 from callbacks import ADMIN_PROMOS
+from tariffs import all_services, get_service, get_plan, DEFAULT_SERVICE_KEY
 
 
 class MessageHandler:
@@ -70,20 +71,35 @@ class MessageHandler:
             pass
         await self.safe_edit_message(chat_id, msg_id, text, parse_mode="Markdown")
     
-    async def handle_vpn_operation(self, user_id: int, days: int, operation_name: str = "операция") -> bool:
+    async def handle_vpn_operation(
+        self,
+        user_id: int,
+        days: int,
+        service_key: str = DEFAULT_SERVICE_KEY,
+        operation_name: str = "операция",
+    ) -> bool:
         """Универсальная обработка VPN операций (добавление/продление дней)."""
+        service = get_service(service_key) or get_service(DEFAULT_SERVICE_KEY)
+        if not service:
+            logging.error("Unknown service %s for VPN operation %s", service_key, operation_name)
+            return False
+
         session = get_session_cached()
         if not session:
             return False
-        
-        if check_if_client_exists(session, user_id):
-            return extend_client_days(session, user_id, days)
-        else:
-            res = add_client_days(session, user_id, days)
-            if res and res.get("client_id"):
-                set_vpn_email(user_id, str(user_id))
-                return True
-            return False
+
+        email = service.email_for_user(user_id)
+        inbound_id = service.inbound_id
+
+        if check_if_client_exists(session, email, inbound_id=inbound_id):
+            return extend_client_days(session, user_id, days, inbound_id=inbound_id, email=email)
+
+        res = add_client_days(session, user_id, days, inbound_id=inbound_id, email=email)
+        if res and isinstance(res, dict) and res.get("client_id"):
+            if service_key == DEFAULT_SERVICE_KEY:
+                set_vpn_email(user_id, email)
+            return True
+        return False
     
     def compute_show_trial(self, user_id: int) -> bool:
         """Вычислить, показывать ли кнопку теста."""
@@ -97,6 +113,15 @@ class MessageHandler:
 
 class UserHandlers(MessageHandler):
     """Хендлеры для обычных пользователей."""
+
+    @staticmethod
+    def _split_plan_code(plan_code: str) -> tuple[str, str]:
+        if not plan_code:
+            return DEFAULT_SERVICE_KEY, ""
+        if ":" in plan_code:
+            service_key, plan_key = plan_code.split(":", 1)
+            return service_key or DEFAULT_SERVICE_KEY, plan_key or ""
+        return DEFAULT_SERVICE_KEY, plan_code
     
     async def handle_start(self, message: types.Message, state: FSMContext):
         """Обработчик команды /start."""
@@ -155,44 +180,49 @@ class UserHandlers(MessageHandler):
             await call.answer("Сервер спит.", show_alert=True)
             return
         
-        inbound, client = get_client_info(session, call.from_user.id)
-        is_admin = self.is_admin(call.from_user.id)
-        
-        # Синхронизация: если пользователя нет в XUI, но есть vpn_email в БД
-        if not inbound or not client:
-            user = get_user_by_tg(call.from_user.id)
-            if user and user.get("vpn_email"):
-                # Очищаем vpn_email в БД, так как пользователя нет в XUI
-                set_vpn_email(call.from_user.id, None)
-                logging.info(f"Синхронизация: очищен vpn_email для пользователя {call.from_user.id}")
-        
-        kb = kb_main(show_trial=self.compute_show_trial(call.from_user.id), is_admin=is_admin)
-        
-        if not inbound or not client:
+        user_id = call.from_user.id
+        services_info = []
+        is_admin = self.is_admin(user_id)
+
+        for service in all_services():
+            email = service.email_for_user(user_id)
+            inbound, client = get_client_info(session, email, inbound_id=service.inbound_id)
+            if inbound and client:
+                services_info.append((service, inbound, client))
+            elif service.key == DEFAULT_SERVICE_KEY:
+                user = get_user_by_tg(user_id)
+                if user and user.get("vpn_email"):
+                    set_vpn_email(user_id, None)
+                    logging.info(f"Синхронизация: очищен vpn_email для пользователя {user_id}")
+
+        kb = kb_main(show_trial=self.compute_show_trial(user_id), is_admin=is_admin)
+
+        if not services_info:
             await edit_menu_text(call, "Вы еще не оформляли подписку", kb)
             return
-        
-        link = generate_vless_link(inbound, client)
-        
+
         def fmt_exp(ms):
             try:
                 ms = int(ms)
                 if ms == 0:
                     return "бесконечно"
                 from datetime import datetime
-                return datetime.fromtimestamp(ms/1000).strftime("%d.%m.%Y %H:%M")
+                return datetime.fromtimestamp(ms / 1000).strftime("%d.%m.%Y %H:%M")
             except Exception:
                 return str(ms)
-        
-        expiry = fmt_exp(client.get('expiryTime', 0))
-        extra = "\nДоступ бессрочный." if expiry == "бесконечно" else ""
-        
-        text = (
-            f"Твоя подписка:\n"
-            f"- Тег: @{call.from_user.username or '-'}\n"
-            f"- Дата истечения: {expiry}{extra}\n"
-            f"- Персональная ссылка:\n<pre><code>{link}</code></pre>"
-        )
+
+        sections = [f"Профиль: @{call.from_user.username or '-'}"]
+        for service, inbound, client in services_info:
+            link = generate_vless_link(inbound, client)
+            expiry = fmt_exp(client.get('expiryTime', 0))
+            extra = " (бессрочно)" if expiry == "бесконечно" else ""
+            sections.append(
+                f"<b>{service.name}</b>\n"
+                f"Действует до: {expiry}{extra}\n"
+                f"Ссылка:\n<pre><code>{html.escape(link)}</code></pre>"
+            )
+
+        text = "\n\n".join(sections)
         await edit_menu_text_pm(call, text, kb, parse_mode="HTML")
 
     async def handle_trial(self, call: types.CallbackQuery):
@@ -218,42 +248,66 @@ class UserHandlers(MessageHandler):
     async def handle_buy(self, call: types.CallbackQuery):
         """Показать меню покупки."""
         is_admin = self.is_admin(call.from_user.id)
-        text = (
-            "Выберите тарифный план:\n\n"
-        )
-        if is_admin:
-            text += "• Тест — 1₽ за 1 день (для проверки работы)\n"
-        text += (
-            "• 1 месяц — оптимально, чтобы попробовать\n"
-            "• 3 месяца — выгоднее, меньше возни с продлениями\n"
-            "• 6 месяцев — максимальная выгода и стабильность\n\n"
-            "После оплаты доступ активируется автоматически, срок появится в разделе «Моя подписка»."
-        )
+        lines = ["Выберите услугу перед оплатой:\n"]
+        for service in all_services():
+            lines.append(f"• *{service.name}* — {service.description}")
+        lines.append("\nПосле выбора услуги появятся доступные планы и цены.")
+        text = "\n".join(lines)
         await edit_menu_text(call, text, kb_buy_menu(is_admin=is_admin))
 
+    async def handle_buy_service(self, call: types.CallbackQuery):
+        """Показать планы конкретной услуги."""
+        try:
+            _, service_key = (call.data or "").split(":", 1)
+        except ValueError:
+            await call.answer("Не удалось определить услугу.", show_alert=True)
+            return
+
+        service = get_service(service_key)
+        if not service:
+            await call.answer("Услуга недоступна.", show_alert=True)
+            return
+
+        is_admin = self.is_admin(call.from_user.id)
+        kb = kb_buy_plans(service, is_admin=is_admin)
+        text = (
+            f"Тариф «{service.name}».\n\n"
+            f"{service.description}\n\nВыберите длительность подписки:" 
+        )
+        await edit_menu_text(call, text, kb)
+
     async def handle_buy_plan(self, call: types.CallbackQuery):
-        """Обработать покупку тарифа: отправить инвойс."""
-        plan = call.data
-        
-        # Проверяем доступ к тестовому товару только для админов
-        if plan == "buy_test" and not self.is_admin(call.from_user.id):
+        """Обработать покупку плана выбранной услуги."""
+        try:
+            _, service_key, plan_key = (call.data or "").split(":", 2)
+        except ValueError:
+            await call.answer("Не удалось определить план.", show_alert=True)
+            return
+
+        service = get_service(service_key)
+        plan = get_plan(service_key, plan_key)
+        if not service or not plan:
+            await call.answer("План недоступен.", show_alert=True)
+            return
+
+        if plan.admin_only and not self.is_admin(call.from_user.id):
             await call.answer("Доступ ограничен.", show_alert=True)
             return
-        
-        plan_to_days = {
-            "buy_test": 1,    # Тестовый товар - 1 день
-            "buy_1m": 30,
-            "buy_3m": 90,
-            "buy_6m": 180,
-        }
-        plan_to_price = {
-            "buy_test": 100,  # 1.00 RUB - тестовый товар
-            "buy_1m": 14900,  # 149.00 RUB
-            "buy_3m": 36900,  # 369.00 RUB
-            "buy_6m": 59900,  # 599.00 RUB
-        }
-        days = plan_to_days.get(plan, 30)
-        amount = plan_to_price.get(plan, 14900)
+
+        days = plan.days
+        amount = plan.amount_minor
+        plan_code = f"{service_key}:{plan_key}"
+        description = f"{service.name}: доступ на {days} дней"
+        is_admin = self.is_admin(call.from_user.id)
+
+        logging.info(
+            "purchase_selected: user=%s service=%s plan=%s days=%s amount_minor=%s",
+            call.from_user.id,
+            service_key,
+            plan_key,
+            days,
+            amount,
+        )
 
         if USE_YOOKASSA:
             # YooKassa Smart Payment: создаём платеж и отправляем ссылку-навигацию
@@ -261,7 +315,7 @@ class UserHandlers(MessageHandler):
             bot_user = (await self.bot.get_me()).username
             pay = create_redirect_payment(
                 amount_rub=rub,
-                description=f"Доступ на {days} дней",
+                description=description,
                 bot_username=bot_user,
                 user_id=call.from_user.id,
             )
@@ -272,7 +326,7 @@ class UserHandlers(MessageHandler):
                     save_payment(
                         payment_id=pay.get("id") or "",
                         tg_id=call.from_user.id,
-                        plan=plan,
+                        plan=plan_code,
                         days=days,
                         amount=amount,
                         currency=CURRENCY or "RUB",
@@ -290,25 +344,21 @@ class UserHandlers(MessageHandler):
 
         if not USE_YOOKASSA and not PROVIDER_TOKEN:
             # Если платежи не настроены — временно начисляем дни (тестовый режим)
-            ok = await self.handle_vpn_operation(call.from_user.id, days)
+            ok = await self.handle_vpn_operation(call.from_user.id, days, service_key=service_key)
             is_admin = self.is_admin(call.from_user.id)
             kb = kb_main(show_trial=False, is_admin=is_admin)
             await edit_menu_text(call, ("Начислено: "+str(days)+" дн. (тестовый режим)") if ok else "Ошибка. Попробуй позже.", kb)
             return
 
-        title = {
-            30: "Подписка 1 месяц",
-            60: "Подписка 2 месяца",
-            90: "Подписка 3 месяца",
-        }.get(days, "Подписка")
-        description = f"Доступ на {days} дней."
-        payload = f"plan:{plan};days:{days}"
-        prices = [LabeledPrice(label=title, amount=amount)]
+        title = f"{service.name} — {plan.days} дн."
+        description_invoice = f"Оплата услуги ‘{service.name}’ на {days} дней."
+        payload = f"service:{service_key};plan:{plan_key};days:{days}"
+        prices = [LabeledPrice(label=plan.label, amount=amount)]
 
         await self.bot.send_invoice(
             chat_id=call.message.chat.id,
             title=title,
-            description=description,
+            description=description_invoice,
             payload=payload,
             provider_token=PROVIDER_TOKEN,
             currency=CURRENCY or "RUB",
@@ -333,15 +383,17 @@ class UserHandlers(MessageHandler):
             payload = message.successful_payment.invoice_payload or ""
             parts = dict(p.split(":", 1) for p in payload.split(";") if ":" in p)
             days = int(parts.get("days", "30"))
+            service_key = parts.get("service", DEFAULT_SERVICE_KEY)
         except Exception:
             days = 30
+            service_key = DEFAULT_SERVICE_KEY
 
         sp = message.successful_payment
         charge_id = getattr(sp, "provider_payment_charge_id", "")
         total_amount = getattr(sp, "total_amount", 0)
         currency = getattr(sp, "currency", "RUB")
 
-        ok = await self.handle_vpn_operation(message.from_user.id, days)
+        ok = await self.handle_vpn_operation(message.from_user.id, days, service_key=service_key)
         is_admin = self.is_admin(message.from_user.id)
         kb = kb_main(show_trial=False, is_admin=is_admin)
         text = "Оплата получена. Доступ активирован на " + str(days) + " дн." if ok else "Оплата получена, но не удалось активировать доступ. Напишите в поддержку."
@@ -448,7 +500,9 @@ class UserHandlers(MessageHandler):
                 await call.answer("Платёж уже применён.", show_alert=True)
                 return
             days = int(p.get("days", 30)) if p else 30
-            ok = await self.handle_vpn_operation(call.from_user.id, days)
+            plan_code = (p or {}).get("plan", "") if p else ""
+            service_key, _ = self._split_plan_code(plan_code)
+            ok = await self.handle_vpn_operation(call.from_user.id, days, service_key=service_key)
             if p:
                 try:
                     mark_payment_applied(payment_id)
