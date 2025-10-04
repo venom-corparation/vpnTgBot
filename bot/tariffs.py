@@ -94,6 +94,8 @@ _SERVICES: Dict[str, TariffService] = {
         server_host=_DEFAULT_OBHOD_HOST,
         plans=[
             TariffPlan("test", "🧪 Тест — 1₽ (1 день)", days=1, amount_minor=100, admin_only=True),
+            TariffPlan("1d", "1 день — 29₽", days=1, amount_minor=3900),
+            TariffPlan("1w", "1 неделя — 99₽", days=7, amount_minor=9900),
             TariffPlan("1m", "1 месяц — 179₽", days=30, amount_minor=17900),
             TariffPlan("3m", "3 месяца — 399₽", days=90, amount_minor=39900),
             TariffPlan("6m", "6 месяцев — 599₽", days=180, amount_minor=59900),
