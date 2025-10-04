@@ -10,6 +10,7 @@ from aiogram.dispatcher import FSMContext
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice
 from aiogram.utils.exceptions import MessageNotModified
 import logging
+import os
 
 from config import ADMIN_IDS, PROVIDER_TOKEN, CURRENCY, USE_YOOKASSA
 from payments import create_redirect_payment, get_payment_status
@@ -582,7 +583,16 @@ class AdminHandlers(MessageHandler):
             await call.answer("Доступ ограничен.", show_alert=True)
             return
         await state.finish()
-        await edit_menu_text(call, "Панель управления", admin_kb())
+        # Добавляем кнопку 'Логи' динамически
+        kb = InlineKeyboardMarkup(row_width=1)
+        kb.add(InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast"))
+        kb.add(InlineKeyboardButton("🔍 Поиск по ID", callback_data="admin_search"))
+        kb.add(InlineKeyboardButton("📊 Статистика", callback_data="admin_stats"))
+        kb.add(InlineKeyboardButton("🎫 Промокоды", callback_data="admin_promos"))
+        kb.add(InlineKeyboardButton("🔄 Синхронизация", callback_data="admin_sync"))
+        kb.add(InlineKeyboardButton("🧾 Логи (последние)", callback_data="admin_logs"))
+        kb.add(InlineKeyboardButton("⬅️ Назад", callback_data="back_main"))
+        await edit_menu_text(call, "Панель управления", kb)
 
     async def handle_broadcast_start(self, call: types.CallbackQuery, state: FSMContext):
         """Начать рассылку."""
@@ -859,3 +869,78 @@ class AdminHandlers(MessageHandler):
         except Exception:
             pass
         await call.answer()
+
+    async def handle_admin_logs(self, call: types.CallbackQuery, state: FSMContext):
+        """Показать последние строки логов."""
+        if not self.is_admin(call.from_user.id):
+            await call.answer("Доступ ограничен.", show_alert=True)
+            return
+        await state.finish()
+        try:
+            base_dir = "/app/logs"
+            bot_path = os.path.join(base_dir, 'bot.log')
+            pay_path = os.path.join(base_dir, 'payments.log')
+            # ensure files exist
+            os.makedirs(base_dir, exist_ok=True)
+            for p in (bot_path, pay_path):
+                try:
+                    if not os.path.exists(p):
+                        open(p, 'a', encoding='utf-8').close()
+                except Exception:
+                    pass
+
+            def tail(path: str, lines: int = 50) -> str:
+                try:
+                    with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                        data = f.readlines()
+                        return ''.join(data[-lines:]) if data else '(пусто)'
+                except FileNotFoundError:
+                    return '(файл не найден)'
+                except Exception as e:
+                    return f'(ошибка чтения: {e})'
+
+            bot_log_raw = tail(bot_path, 50)
+            pay_log_raw = tail(pay_path, 50)
+
+            # Prepare safe HTML with hard caps
+            def safe_clip(s: str, cap: int = 1800) -> str:
+                from html import escape
+                s = escape(s)
+                if len(s) > cap:
+                    return s[-cap:]
+                return s
+
+            bot_clip = safe_clip(bot_log_raw, 1800)
+            pay_clip = safe_clip(pay_log_raw, 1800)
+
+            text = (
+                "Последние логи:\n\n"
+                "🧾 bot.log (50 строк):\n"
+                f"<pre><code>{bot_clip}</code></pre>\n\n"
+                "💳 payments.log (50 строк):\n"
+                f"<pre><code>{pay_clip}</code></pre>"
+            )
+
+            # If still too long for Telegram, fallback to sending documents
+            if len(text) > 3800:
+                kb = InlineKeyboardMarkup(row_width=1)
+                kb.add(InlineKeyboardButton("⬅️ Назад", callback_data="admin"))
+                await edit_menu_text_pm(call, "Логи большие — отправляю файлами ниже.", kb, parse_mode="HTML")
+                try:
+                    from aiogram.types import InputFile
+                    await self.bot.send_document(call.message.chat.id, InputFile(bot_path), caption="bot.log (последний файл)")
+                except Exception:
+                    pass
+                try:
+                    from aiogram.types import InputFile
+                    await self.bot.send_document(call.message.chat.id, InputFile(pay_path), caption="payments.log (последний файл)")
+                except Exception:
+                    pass
+                return
+
+            kb = InlineKeyboardMarkup(row_width=1)
+            kb.add(InlineKeyboardButton("⬅️ Назад", callback_data="admin"))
+            await edit_menu_text_pm(call, text, kb, parse_mode="HTML")
+        except Exception as e:
+            logging.error(f"admin_logs_error: {e}")
+            await call.answer("Не удалось показать логи.", show_alert=True)
