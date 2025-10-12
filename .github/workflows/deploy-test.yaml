@@ -40,11 +40,10 @@ jobs:
 
         - name: Create .env for compose (test)
           run: |
-            # Запишем многострочный secret в .env без подстановок шелла
-            cat > .env <<'ENV_EOF'
+            cat > .env.test <<'ENV_EOF'
             ${{ secrets.TEST_ENV_FILE }}
             ENV_EOF
-            chmod 600 .env
+            chmod 600 .env.test
         
         - name: Docker compose
           env:
