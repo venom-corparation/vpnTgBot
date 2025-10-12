@@ -7,6 +7,9 @@ env:
 on:
   push:
     branches: [ "main" ]
+    paths:
+        - 'bot/**'
+        - 'docker-compose.test.yml'
 
 jobs:
   deploy:

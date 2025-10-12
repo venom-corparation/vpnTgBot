@@ -1,4 +1,4 @@
-name: Deploy Test Environment
+name: Deploy Prod Environment
 
 env:
   REGISTRY: ghcr.io
@@ -7,6 +7,9 @@ env:
 on:
   push:
     branches: [ "main" ]
+    paths:
+        - 'bot/**'
+        - 'docker-compose.prod.yml'
 
 jobs:
   deploy:
