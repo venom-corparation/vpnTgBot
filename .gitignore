@@ -2,8 +2,8 @@
 .env
 .env.local
 .env.production
+.env.test
 env
-
 
 # Python
 __pycache__/
@@ -12,6 +12,7 @@ __pycache__/
 *.pyd
 .Python
 venv/
+.venv/
 env/
 
 # Database
