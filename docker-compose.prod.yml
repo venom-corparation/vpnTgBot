@@ -10,9 +10,9 @@ services:
     env_file:
       - .env.prod
     volumes:
-      - ./logs:/app/logs
-      - ./backups:/app/backups
-      - usersdb:/app/data
+      - ./prod_logs:/app/logs
+      - ./prod_backups:/app/backups
+      - prod_usersdb:/app/data
     networks:
       - vpntgbot-network
     healthcheck:
@@ -33,4 +33,4 @@ networks:
     driver: bridge
 
 volumes:
-  usersdb:
+  prod_usersdb:
