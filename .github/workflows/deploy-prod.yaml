@@ -1,0 +1,59 @@
+name: Deploy Test Environment
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: prod    
+    steps:
+        - name: Checkout
+          uses: actions/checkout@v4
+          env:
+            GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+        - name: Install ssh keys
+          run: |
+            install -m 600 -D /dev/null ~/.ssh/id_rsa
+            echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+            ssh-keyscan -H ${{ secrets.SSH_HOST }} > ~/.ssh/known_hosts
+            docker context create remote --docker host=ssh://${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}
+
+        - name: Extract metadata (tags, labels) for Docker
+          id: meta
+          uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
+          with:
+            images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+            
+        - name: Log in to the Container registry
+          uses: docker/login-action@v3.0.0
+          with:
+            registry: ${{ env.REGISTRY }}
+            username: ${{ github.actor }}
+            password: ${{ secrets.GITHUB_TOKEN }}
+        
+        - name: Create .env for compose (test)
+          run: |
+            cat > .env.prod <<'ENV_EOF'
+            ${{ secrets.PROD_ENV_FILE }}
+            ENV_EOF
+            chmod 600 .env.prod
+
+        - name: Docker compose
+          env:
+            IMAGE_REF: ${{ steps.meta.outputs.tags }}
+          run: |
+            docker --context remote compose -f docker-compose.prod.yml pull || true
+            docker --context remote compose -f docker-compose.prod.yml up -d --build
+
+        - name: cleanup
+          if: always()
+          run: |
+            rm -rf ~/.ssh
+            rm -f .env
