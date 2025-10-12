@@ -40,15 +40,10 @@ jobs:
         
         - name: Create .env for compose (test)
           run: |
-            if [ -n "${{ secrets.TEST_ENV_FILE }}" ]; then
-              cat > .env.test <<'ENV_EOF'
-              ${{ secrets.TEST_ENV_FILE }}
-              ENV_EOF
-              chmod 600 .env.test
-            else
-              echo "Error: Secret TEST_ENV_FILE is not set in the GitHub Environment 'test'" >&2
-              exit 1
-            fi
+            cat > .env.test <<'ENV_EOF'
+            ${{ secrets.TEST_ENV_FILE }}
+            ENV_EOF
+            chmod 600 .env.test
         
         - name: Docker compose
           env:
