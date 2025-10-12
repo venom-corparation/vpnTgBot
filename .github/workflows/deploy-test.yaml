@@ -47,6 +47,11 @@ jobs:
             ${{ secrets.TEST_ENV_FILE }}
             ENV_EOF
             chmod 600 .env.test
+
+        - name: Prepare host directories (permissions)
+          run: |
+            ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+              "sudo mkdir -p /opt/testvpnbot/logs /opt/testvpnbot/backups && sudo chown -R 1000:1000 /opt/testvpnbot/logs /opt/testvpnbot/backups"
         
         - name: Docker compose
           env:

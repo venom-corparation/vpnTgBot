@@ -41,12 +41,17 @@ jobs:
             username: ${{ github.actor }}
             password: ${{ secrets.GITHUB_TOKEN }}
         
-        - name: Create .env for compose (test)
+        - name: Create .env for compose (prod)
           run: |
             cat > .env.prod <<'ENV_EOF'
             ${{ secrets.PROD_ENV_FILE }}
             ENV_EOF
             chmod 600 .env.prod
+
+        - name: Prepare host directories (permissions)
+          run: |
+            ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+              "sudo mkdir -p /opt/vpnbot/logs /opt/vpnbot/backups && sudo chown -R 1000:1000 /opt/vpnbot/logs /opt/vpnbot/backups"
 
         - name: Docker compose
           env:
@@ -59,4 +64,4 @@ jobs:
           if: always()
           run: |
             rm -rf ~/.ssh
-            rm -f .env
+            rm -f .env.prod
