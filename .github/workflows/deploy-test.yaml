@@ -37,13 +37,18 @@ jobs:
             registry: ${{ env.REGISTRY }}
             username: ${{ github.actor }}
             password: ${{ secrets.GITHUB_TOKEN }}
-
+        
         - name: Create .env for compose (test)
           run: |
-            cat > .env.test <<'ENV_EOF'
-            ${{ secrets.TEST_ENV_FILE }}
-            ENV_EOF
-            chmod 600 .env.test
+            if [ -n "${{ secrets.TEST_ENV_FILE }}" ]; then
+              cat > .env.test <<'ENV_EOF'
+              ${{ secrets.TEST_ENV_FILE }}
+              ENV_EOF
+              chmod 600 .env.test
+            else
+              echo "Error: Secret TEST_ENV_FILE is not set in the GitHub Environment 'test'" >&2
+              exit 1
+            fi
         
         - name: Docker compose
           env:
@@ -53,4 +58,7 @@ jobs:
             docker --context remote compose -f docker-compose.test.yml up -d --build
 
         - name: cleanup
-          run: rm -rf ~/.ssh .env
+          if: always()
+          run: |
+            rm -rf ~/.ssh
+            rm -f .env
