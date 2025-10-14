@@ -30,12 +30,6 @@ jobs:
             ssh-keyscan -H ${{ secrets.SSH_HOST }} > ~/.ssh/known_hosts
             docker context create remote --docker host=ssh://${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}
 
-        - name: Extract metadata (tags, labels) for Docker
-          id: meta
-          uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
-          with:
-            images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-            
         - name: Log in to the Container registry
           uses: docker/login-action@v3.0.0
           with:
@@ -57,10 +51,10 @@ jobs:
         
         - name: Docker compose
           env:
-            IMAGE_REF: ${{ steps.meta.outputs.tags }}
+            IMAGE_REF: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
           run: |
             docker --context remote compose -f docker-compose.test.yml pull || true
-            docker --context remote compose -f docker-compose.test.yml up -d --build
+            docker --context remote compose -f docker-compose.test.yml up -d
 
         - name: cleanup
           if: always()
