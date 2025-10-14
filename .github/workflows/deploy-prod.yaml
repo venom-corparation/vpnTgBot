@@ -5,19 +5,21 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 on:
-  push:
-    branches: [ "main" ]
-    paths:
-        - 'bot/**'
-        - 'docker-compose.prod.yml'
+  workflow_run:
+    workflows: ["Docker"]
+    types:
+      - completed
 
 jobs:
   deploy:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
     runs-on: ubuntu-latest
     environment: prod    
     steps:
         - name: Checkout
           uses: actions/checkout@v4
+          with:
+            ref: ${{ github.event.workflow_run.head_sha }}
           env:
             GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

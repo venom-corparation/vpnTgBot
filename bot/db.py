@@ -454,27 +454,23 @@ def sync_users_with_xui(session, db_path: str = DEFAULT_DB_PATH) -> dict:
     try:
         # Получаем всех пользователей из БД с vpn_email
         with get_connection(db_path) as conn:
-            cur = conn.execute(
-                "SELECT tg_id, vpn_email FROM users WHERE vpn_email IS NOT NULL AND vpn_email <> ''"
-            )
-            db_users = {row[0]: row[1] for row in cur.fetchall()}
-        
+            cur = conn.execute("SELECT tg_id, vpn_email FROM users")
+            db_users = {int(row[0]): row[1] for row in cur.fetchall()}
+
         stats["users_in_db"] = len(db_users)
-        
-        # Проверяем каждого пользователя в XUI
+
+        # Проверяем каждого пользователя в XUI и синхронизируем vpn_email
         for tg_id, vpn_email in db_users.items():
             try:
-                if check_if_client_exists(session, tg_id):
-                    # Пользователь есть в XUI - синхронизируем email
+                in_xui = check_if_client_exists(session, tg_id)
+                if in_xui:
                     if vpn_email != str(tg_id):
-                        set_vpn_email(tg_id, str(tg_id))
-                        stats["synced"] += 1
-                    else:
-                        stats["synced"] += 1
+                        set_vpn_email(tg_id, str(tg_id), db_path=db_path)
+                    stats["synced"] += 1
                 else:
-                    # Пользователя нет в XUI - очищаем vpn_email
-                    set_vpn_email(tg_id, None)
-                    stats["cleared"] += 1
+                    if vpn_email:
+                        set_vpn_email(tg_id, None, db_path=db_path)
+                        stats["cleared"] += 1
             except Exception as e:
                 logging.error(f"Ошибка синхронизации пользователя {tg_id}: {e}")
                 stats["errors"] += 1
@@ -498,6 +494,22 @@ def sync_users_with_xui(session, db_path: str = DEFAULT_DB_PATH) -> dict:
                     xui_users.add(int(email))
         
         stats["users_in_xui"] = len(xui_users)
+
+        # Добавляем недостающих пользователей из XUI в БД
+        missing_in_db = xui_users.difference(db_users.keys())
+        for tg_id in missing_in_db:
+            try:
+                upsert_user_on_start(tg_id=tg_id, db_path=db_path)
+                set_vpn_email(tg_id, str(tg_id), db_path=db_path)
+                stats["synced"] += 1
+            except Exception as e:
+                logging.error(f"Ошибка добавления пользователя {tg_id} из XUI: {e}")
+                stats["errors"] += 1
+
+        # Обновляем счётчик пользователей в БД после синхронизации
+        with get_connection(db_path) as conn:
+            cur = conn.execute("SELECT COUNT(*) FROM users")
+            stats["users_in_db"] = int(cur.fetchone()[0])
         
         return stats
         
