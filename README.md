@@ -6,6 +6,10 @@
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://docker.com)
 [![Telegram](https://img.shields.io/badge/Telegram-Bot-26A5E4.svg)](https://telegram.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+---
+[![Registry](https://github.com/venom-corparation/vpnTgBot/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/venom-corparation/vpnTgBot/actions/workflows/docker-publish.yml)
+[![Deploy Prod Environment](https://github.com/venom-corparation/vpnTgBot/actions/workflows/deploy-prod.yaml/badge.svg)](https://github.com/venom-corparation/vpnTgBot/actions/workflows/deploy-prod.yaml)
+[![Deploy Test Environment](https://github.com/venom-corparation/vpnTgBot/actions/workflows/deploy-test.yaml/badge.svg)](https://github.com/venom-corparation/vpnTgBot/actions/workflows/deploy-test.yaml)
 
 **Профессиональный VPN Bot с автоматическим деплоем, платежами YooKassa, интеграцией с X-UI и полным мониторингом.**
 
