@@ -1,8 +1,12 @@
 import sqlite3
+import json
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Optional, Dict, Any
 import logging
+
+from config import XUI_URL
+from api import check_if_client_exists
 
 DEFAULT_DB_PATH = "/app/data/users.db"
 
