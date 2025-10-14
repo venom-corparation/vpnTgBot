@@ -1,6 +1,6 @@
 services:
   testvpnbot:
-    image: ${IMAGE_REF:-ghcr.io/venom-corparation/vpnTgBot:main}
+    image: ${IMAGE_REF:-ghcr.io/venom-corparation/vpntgbot:main}
     build:
       context: .
       dockerfile: Dockerfile
