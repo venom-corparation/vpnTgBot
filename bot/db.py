@@ -1,12 +1,13 @@
 import sqlite3
 import json
+import re
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Optional, Dict, Any
 import logging
 
 from config import XUI_URL
-from api import check_if_client_exists
+from tariffs import get_service_by_inbound_id, DEFAULT_SERVICE_KEY
 
 DEFAULT_DB_PATH = "/app/data/users.db"
 
@@ -452,20 +453,59 @@ def sync_users_with_xui(session, db_path: str = DEFAULT_DB_PATH) -> dict:
     }
     
     try:
-        # Получаем всех пользователей из БД с vpn_email
+        # Получаем всех пользователей из XUI (по всем инбаундам)
+        url = f"{XUI_URL}/panel/api/inbounds/list"
+        headers = {"Accept": "application/json"}
+        response = session.get(url, headers=headers, timeout=5)
+        response.raise_for_status()
+        inbounds = response.json().get('obj', [])
+        
+        def extract_tg_id(email: str) -> Optional[int]:
+            if not email:
+                return None
+            match = re.match(r"(\d+)", str(email))
+            if not match:
+                return None
+            try:
+                return int(match.group(1))
+            except (TypeError, ValueError):
+                return None
+
+        xui_users: Dict[int, Dict[str, Any]] = {}
+        for inbound in inbounds:
+            inbound_id = inbound.get('id')
+            service = get_service_by_inbound_id(inbound_id)
+            priority = 0 if service and service.key == DEFAULT_SERVICE_KEY else 1
+            settings = inbound.get('settings', {})
+            if isinstance(settings, str):
+                settings = json.loads(settings)
+            clients = settings.get("clients", [])
+            for client in clients:
+                email = client.get('email')
+                tg_id = extract_tg_id(email)
+                if tg_id is None:
+                    continue
+                record = xui_users.get(tg_id)
+                if record is None or priority < record["priority"]:
+                    xui_users[tg_id] = {"email": email, "priority": priority}
+
+        stats["users_in_xui"] = len(xui_users)
+
+        # Получаем всех пользователей из БД
         with get_connection(db_path) as conn:
             cur = conn.execute("SELECT tg_id, vpn_email FROM users")
             db_users = {int(row[0]): row[1] for row in cur.fetchall()}
 
         stats["users_in_db"] = len(db_users)
 
-        # Проверяем каждого пользователя в XUI и синхронизируем vpn_email
+        # Сопоставляем пользователей XUI с БД
         for tg_id, vpn_email in db_users.items():
             try:
-                in_xui = check_if_client_exists(session, tg_id)
-                if in_xui:
-                    if vpn_email != str(tg_id):
-                        set_vpn_email(tg_id, str(tg_id), db_path=db_path)
+                record = xui_users.get(tg_id)
+                if record:
+                    desired_email = record.get("email")
+                    if vpn_email != desired_email:
+                        set_vpn_email(tg_id, desired_email, db_path=db_path)
                     stats["synced"] += 1
                 else:
                     if vpn_email:
@@ -474,33 +514,16 @@ def sync_users_with_xui(session, db_path: str = DEFAULT_DB_PATH) -> dict:
             except Exception as e:
                 logging.error(f"Ошибка синхронизации пользователя {tg_id}: {e}")
                 stats["errors"] += 1
-        
-        # Получаем всех пользователей из XUI
-        url = f"{XUI_URL}/panel/api/inbounds/list"
-        headers = {"Accept": "application/json"}
-        response = session.get(url, headers=headers, timeout=5)
-        response.raise_for_status()
-        inbounds = response.json().get('obj', [])
-        
-        xui_users = set()
-        for inbound in inbounds:
-            settings = inbound.get('settings', {})
-            if isinstance(settings, str):
-                settings = json.loads(settings)
-            clients = settings.get("clients", [])
-            for client in clients:
-                email = client.get('email')
-                if email and email.isdigit():
-                    xui_users.add(int(email))
-        
-        stats["users_in_xui"] = len(xui_users)
 
-        # Добавляем недостающих пользователей из XUI в БД
-        missing_in_db = xui_users.difference(db_users.keys())
+        # Добавляем отсутствующих пользователей из XUI в БД
+        missing_in_db = set(xui_users.keys()).difference(db_users.keys())
         for tg_id in missing_in_db:
             try:
+                record = xui_users.get(tg_id)
+                email_value = record.get("email") if record else None
                 upsert_user_on_start(tg_id=tg_id, db_path=db_path)
-                set_vpn_email(tg_id, str(tg_id), db_path=db_path)
+                if email_value:
+                    set_vpn_email(tg_id, email_value, db_path=db_path)
                 stats["synced"] += 1
             except Exception as e:
                 logging.error(f"Ошибка добавления пользователя {tg_id} из XUI: {e}")
