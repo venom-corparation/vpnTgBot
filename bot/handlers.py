@@ -20,7 +20,7 @@ from db import upsert_user_on_start, set_vpn_email, get_user_by_tg, redeem_promo
 from keyboards import kb_main, kb_buy_menu, kb_buy_plans, kb_promo_back, kb_guide, admin_kb, kb_payment
 from ui import edit_menu_text, edit_menu_text_pm
 from callbacks import ADMIN_PROMOS
-from tariffs import all_services, get_service, get_plan, DEFAULT_SERVICE_KEY
+from tariffs import TariffService, all_services, get_service, get_plan, DEFAULT_SERVICE_KEY, auto_assign_services
 
 
 class MessageHandler:
@@ -89,18 +89,35 @@ class MessageHandler:
         if not session:
             return False
 
-        email = service.email_for_user(user_id)
-        inbound_id = service.inbound_id
+        primary_email = service.email_for_user(user_id)
+        if not self._apply_service_days(session, user_id, days, service):
+            logging.error(
+                "Не удалось применить %s (%s) для пользователя %s",
+                service.key,
+                operation_name,
+                user_id,
+            )
+            return False
 
-        if check_if_client_exists(session, email, inbound_id=inbound_id):
-            return extend_client_days(session, user_id, days, inbound_id=inbound_id, email=email)
+        extras_ok = True
+        for extra_service in auto_assign_services():
+            if extra_service.key == service.key:
+                continue
+            if not self._apply_service_days(session, user_id, days, extra_service):
+                logging.error(
+                    "Не удалось выдать доп. сервис %s пользователю %s (%s)",
+                    extra_service.key,
+                    user_id,
+                    operation_name,
+                )
+                extras_ok = False
 
-        res = add_client_days(session, user_id, days, inbound_id=inbound_id, email=email)
-        if res and isinstance(res, dict) and res.get("client_id"):
-            if service_key == DEFAULT_SERVICE_KEY:
-                set_vpn_email(user_id, email)
-            return True
-        return False
+        if not extras_ok:
+            return False
+
+        if service_key == DEFAULT_SERVICE_KEY:
+            set_vpn_email(user_id, primary_email)
+        return True
     
     def compute_show_trial(self, user_id: int) -> bool:
         """Вычислить, показывать ли кнопку теста."""
@@ -110,6 +127,18 @@ class MessageHandler:
     def is_admin(self, user_id: int) -> bool:
         """Проверить, является ли пользователь админом."""
         return user_id in ADMIN_IDS
+
+    def _apply_service_days(self, session, user_id: int, days: int, service: TariffService) -> bool:
+        """Создать или продлить клиента в указанном сервисе на нужное число дней."""
+        email = service.email_for_user(user_id)
+        inbound_id = service.inbound_id
+        if check_if_client_exists(session, email, inbound_id=inbound_id):
+            return extend_client_days(session, user_id, days, inbound_id=inbound_id, email=email)
+
+        result = add_client_days(session, user_id, days, inbound_id=inbound_id, email=email)
+        if isinstance(result, dict):
+            return bool(result.get("client_id"))
+        return bool(result)
 
 
 class UserHandlers(MessageHandler):
@@ -185,7 +214,7 @@ class UserHandlers(MessageHandler):
         services_info = []
         is_admin = self.is_admin(user_id)
 
-        for service in all_services():
+        for service in all_services(include_hidden=True):
             email = service.email_for_user(user_id)
             inbound, client = get_client_info(session, email, inbound_id=service.inbound_id)
             if inbound and client:
@@ -237,9 +266,13 @@ class UserHandlers(MessageHandler):
             await call.answer("Вы уже брали тестовый период", show_alert=True)
             return
         
-        res = add_client_days(session, call.from_user.id, days=3)
-        if res and res.get("client_id"):
-            set_vpn_email(call.from_user.id, str(call.from_user.id))
+        ok = await self.handle_vpn_operation(
+            call.from_user.id,
+            days=3,
+            service_key=DEFAULT_SERVICE_KEY,
+            operation_name="тестовый доступ",
+        )
+        if ok:
             is_admin = self.is_admin(call.from_user.id)
             kb = kb_main(show_trial=False, is_admin=is_admin)
             await edit_menu_text(call, "Выдан тестовый доступ на 3 дня.\nСсылка доступна в разделе «Моя подписка».", kb)

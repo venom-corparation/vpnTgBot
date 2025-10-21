@@ -24,8 +24,10 @@ import os
 _DEFAULT_SERVER_HOST = os.getenv("SERVER_HOST", "77.110.118.156")
 _DEFAULT_STANDARD_INBOUND_ID = int(os.getenv("TARIFF_STANDARD_INBOUND_ID", "1"))
 _DEFAULT_OBHOD_INBOUND_ID = int(os.getenv("TARIFF_OBHOD_INBOUND_ID", "2"))
+_DEFAULT_STANDARD_VM_INBOUND_ID = int(os.getenv("TARIFF_STANDARD_VM_INBOUND_ID", "6"))
 _DEFAULT_STANDARD_HOST = os.getenv("TARIFF_STANDARD_SERVER_HOST", _DEFAULT_SERVER_HOST)
 _DEFAULT_OBHOD_HOST = os.getenv("TARIFF_OBHOD_SERVER_HOST", _DEFAULT_SERVER_HOST)
+_DEFAULT_STANDARD_VM_HOST = os.getenv("TARIFF_STANDARD_VM_SERVER_HOST", _DEFAULT_SERVER_HOST)
 _DEFAULT_OBHOD_SUFFIX = os.getenv("TARIFF_OBHOD_EMAIL_SUFFIX", "-obhod")
 
 
@@ -50,6 +52,10 @@ class TariffService:
     email_suffix: str = ""
     server_host: Optional[str] = None
     plans: List[TariffPlan] = field(default_factory=list)
+    protocol: str = "vless"
+    visible: bool = True
+    auto_assign_on_purchase: bool = False
+    sync_priority: int = 5
 
     def email_for_user(self, tg_id: int) -> str:
         base = str(tg_id)
@@ -81,6 +87,10 @@ _SERVICES: Dict[str, TariffService] = {
             TariffPlan("3m", "3 месяца — 369₽", days=90, amount_minor=36900),
             TariffPlan("6m", "6 месяцев — 599₽", days=180, amount_minor=59900),
         ],
+        protocol="vless",
+        visible=True,
+        auto_assign_on_purchase=False,
+        sync_priority=0,
     ),
     "obhod": TariffService(
         key="obhod",
@@ -100,12 +110,38 @@ _SERVICES: Dict[str, TariffService] = {
             TariffPlan("3m", "3 месяца — 399₽", days=90, amount_minor=39900),
             TariffPlan("6m", "6 месяцев — 599₽", days=180, amount_minor=59900),
         ],
+        protocol="vless",
+        visible=True,
+        auto_assign_on_purchase=False,
+        sync_priority=1,
+    ),
+    "standard_vm": TariffService(
+        key="standard_vm",
+        name="Стандартный #2",
+        description=(
+            "Дополнительный VMess-доступ. Выдаётся автоматически при покупке любого тарифа."
+        ),
+        inbound_id=_DEFAULT_STANDARD_VM_INBOUND_ID,
+        email_suffix="",
+        server_host=_DEFAULT_STANDARD_VM_HOST,
+        plans=[],
+        protocol="vmess",
+        visible=False,
+        auto_assign_on_purchase=True,
+        sync_priority=2,
     ),
 }
 
 
-def all_services() -> List[TariffService]:
-    return list(_SERVICES.values())
+def all_services(include_hidden: bool = False) -> List[TariffService]:
+    services = list(_SERVICES.values())
+    if include_hidden:
+        return services
+    return [service for service in services if service.visible]
+
+
+def auto_assign_services() -> List[TariffService]:
+    return [service for service in _SERVICES.values() if service.auto_assign_on_purchase]
 
 
 def get_service(key: str) -> Optional[TariffService]:
@@ -138,6 +174,7 @@ __all__ = [
     "TariffService",
     "DEFAULT_SERVICE_KEY",
     "all_services",
+    "auto_assign_services",
     "get_service",
     "get_plan",
     "get_service_by_inbound_id",

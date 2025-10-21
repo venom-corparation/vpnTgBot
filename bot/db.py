@@ -7,7 +7,8 @@ from typing import Optional, Dict, Any
 import logging
 
 from config import XUI_URL
-from tariffs import get_service_by_inbound_id, DEFAULT_SERVICE_KEY
+from tariffs import get_service_by_inbound_id, auto_assign_services
+from api import add_client_with_expiry
 
 DEFAULT_DB_PATH = "/app/data/users.db"
 
@@ -449,7 +450,8 @@ def sync_users_with_xui(session, db_path: str = DEFAULT_DB_PATH) -> dict:
         "users_in_xui": 0,
         "synced": 0,
         "cleared": 0,
-        "errors": 0
+        "errors": 0,
+        "extra_clients_added": 0,
     }
     
     try:
@@ -472,22 +474,34 @@ def sync_users_with_xui(session, db_path: str = DEFAULT_DB_PATH) -> dict:
                 return None
 
         xui_users: Dict[int, Dict[str, Any]] = {}
+        inbound_clients: Dict[int, Dict[int, Dict[str, Any]]] = {}
         for inbound in inbounds:
-            inbound_id = inbound.get('id')
-            service = get_service_by_inbound_id(inbound_id)
-            priority = 0 if service and service.key == DEFAULT_SERVICE_KEY else 1
+            inbound_id_value = inbound.get('id')
+            try:
+                inbound_id_int = int(inbound_id_value)
+            except (TypeError, ValueError):
+                continue
+            service = get_service_by_inbound_id(inbound_id_value)
+            priority = getattr(service, "sync_priority", 5) if service else 5
             settings = inbound.get('settings', {})
             if isinstance(settings, str):
                 settings = json.loads(settings)
             clients = settings.get("clients", [])
+            inbound_clients.setdefault(inbound_id_int, {})
             for client in clients:
                 email = client.get('email')
                 tg_id = extract_tg_id(email)
                 if tg_id is None:
                     continue
+                inbound_clients[inbound_id_int][tg_id] = client
                 record = xui_users.get(tg_id)
                 if record is None or priority < record["priority"]:
-                    xui_users[tg_id] = {"email": email, "priority": priority}
+                    xui_users[tg_id] = {
+                        "email": email,
+                        "priority": priority,
+                        "client": client,
+                        "inbound_id": inbound_id_int,
+                    }
 
         stats["users_in_xui"] = len(xui_users)
 
@@ -514,6 +528,69 @@ def sync_users_with_xui(session, db_path: str = DEFAULT_DB_PATH) -> dict:
             except Exception as e:
                 logging.error(f"Ошибка синхронизации пользователя {tg_id}: {e}")
                 stats["errors"] += 1
+
+        # Дополняем пользователей отсутствующими автоматическими inbound-ами
+        extra_services = auto_assign_services()
+        for service in extra_services:
+            try:
+                inbound_id_int = int(service.inbound_id)
+            except (TypeError, ValueError):
+                continue
+
+            existing_clients_map = inbound_clients.get(inbound_id_int, {})
+            for tg_id, record in xui_users.items():
+                if tg_id in existing_clients_map:
+                    continue
+                base_client = record.get("client") if record else None
+                if not base_client:
+                    continue
+
+                email_value = service.email_for_user(tg_id)
+                if any(
+                    str(client.get('email')) == email_value
+                    for client in existing_clients_map.values()
+                ):
+                    continue
+
+                expiry_raw = base_client.get('expiryTime') if isinstance(base_client, dict) else 0
+                try:
+                    expiry_ms = int(expiry_raw or 0)
+                except (TypeError, ValueError):
+                    expiry_ms = 0
+                if expiry_ms < 0:
+                    expiry_ms = 0
+
+                try:
+                    result = add_client_with_expiry(
+                        session,
+                        tg_id,
+                        expiry_ms,
+                        inbound_id_int,
+                        email=email_value,
+                        template_client=base_client,
+                    )
+                except Exception as e:
+                    logging.error(
+                        "Ошибка при добавлении пользователя %s в inbound %s: %s",
+                        tg_id,
+                        inbound_id_int,
+                        e,
+                    )
+                    stats["errors"] += 1
+                    continue
+
+                if isinstance(result, dict) and result.get("client_id"):
+                    stats["extra_clients_added"] += 1
+                    logging.info(
+                        "Синхронизация: добавлен пользователь %s в inbound %s",
+                        tg_id,
+                        inbound_id_int,
+                    )
+                    inbound_clients.setdefault(inbound_id_int, {})[tg_id] = {
+                        "email": email_value,
+                    }
+                else:
+                    stats["errors"] += 1
 
         # Добавляем отсутствующих пользователей из XUI в БД
         missing_in_db = set(xui_users.keys()).difference(db_users.keys())
