@@ -583,6 +583,14 @@ def sync_users_with_xui(session, db_path: str = DEFAULT_DB_PATH) -> dict:
                 if not template_client:
                     continue
 
+                expiry_raw = template_client.get('expiryTime') if isinstance(template_client, dict) else 0
+                try:
+                    expiry_ms = int(expiry_raw or 0)
+                except (TypeError, ValueError):
+                    expiry_ms = 0
+                if expiry_ms < 0:
+                    expiry_ms = 0
+
                 email_value = service.email_for_user(tg_id)
                 if existing_client is not None:
                     current_expiry_raw = existing_client.get('expiryTime') if isinstance(existing_client, dict) else 0
@@ -623,14 +631,6 @@ def sync_users_with_xui(session, db_path: str = DEFAULT_DB_PATH) -> dict:
                     for client in existing_clients_map.values()
                 ):
                     continue
-
-                expiry_raw = template_client.get('expiryTime') if isinstance(template_client, dict) else 0
-                try:
-                    expiry_ms = int(expiry_raw or 0)
-                except (TypeError, ValueError):
-                    expiry_ms = 0
-                if expiry_ms < 0:
-                    expiry_ms = 0
 
                 try:
                     result = add_client_with_expiry(
