@@ -28,6 +28,7 @@ _DEFAULT_STANDARD_VM_INBOUND_ID = int(os.getenv("TARIFF_STANDARD_VM_INBOUND_ID",
 _DEFAULT_STANDARD_HOST = os.getenv("TARIFF_STANDARD_SERVER_HOST", _DEFAULT_SERVER_HOST)
 _DEFAULT_OBHOD_HOST = os.getenv("TARIFF_OBHOD_SERVER_HOST", _DEFAULT_SERVER_HOST)
 _DEFAULT_STANDARD_VM_HOST = os.getenv("TARIFF_STANDARD_VM_SERVER_HOST", _DEFAULT_SERVER_HOST)
+_DEFAULT_STANDARD_VM_SUFFIX = os.getenv("TARIFF_STANDARD_VM_EMAIL_SUFFIX", "-vmess")
 _DEFAULT_OBHOD_SUFFIX = os.getenv("TARIFF_OBHOD_EMAIL_SUFFIX", "-obhod")
 
 
@@ -122,7 +123,7 @@ _SERVICES: Dict[str, TariffService] = {
             "Дополнительный VMess-доступ. Выдаётся автоматически при покупке любого тарифа."
         ),
         inbound_id=_DEFAULT_STANDARD_VM_INBOUND_ID,
-        email_suffix="",
+        email_suffix=_DEFAULT_STANDARD_VM_SUFFIX,
         server_host=_DEFAULT_STANDARD_VM_HOST,
         plans=[],
         protocol="vmess",
