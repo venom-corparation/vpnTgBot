@@ -8,7 +8,7 @@ import logging
 
 from config import XUI_URL
 from tariffs import get_service_by_inbound_id, auto_assign_services, get_service
-from api import add_client_with_expiry
+from api import add_client_with_expiry, update_client_with_expiry
 
 DEFAULT_DB_PATH = "/app/data/users.db"
 
@@ -560,13 +560,14 @@ def sync_users_with_xui(session, db_path: str = DEFAULT_DB_PATH) -> dict:
                         continue
                 else:
                     required_clients = []
-                if tg_id in existing_clients_map:
-                    continue
+                existing_client = existing_clients_map.get(tg_id)
                 base_client = record.get("client") if record else None
 
                 template_candidates = []
                 if base_client:
                     template_candidates.append(base_client)
+                if existing_client:
+                    template_candidates.append(existing_client)
                 if target_inbound_ids:
                     template_candidates.extend(client for client in required_clients if client)
                 template_client = None
@@ -583,6 +584,40 @@ def sync_users_with_xui(session, db_path: str = DEFAULT_DB_PATH) -> dict:
                     continue
 
                 email_value = service.email_for_user(tg_id)
+                if existing_client is not None:
+                    current_expiry_raw = existing_client.get('expiryTime') if isinstance(existing_client, dict) else 0
+                    try:
+                        current_expiry = int(current_expiry_raw or 0)
+                    except (TypeError, ValueError):
+                        current_expiry = 0
+                    if expiry_ms > current_expiry:
+                        try:
+                            result = update_client_with_expiry(
+                                session,
+                                tg_id,
+                                expiry_ms,
+                                inbound_id_int,
+                                existing_client=existing_client,
+                                email=email_value,
+                                template_client=template_client,
+                            )
+                        except Exception as e:
+                            logging.error(
+                                "Ошибка при обновлении пользователя %s в inbound %s: %s",
+                                tg_id,
+                                inbound_id_int,
+                                e,
+                            )
+                            stats["errors"] += 1
+                            continue
+
+                        if isinstance(result, dict) and not result.get("error"):
+                            existing_client['expiryTime'] = expiry_ms
+                            stats["synced"] += 1
+                        else:
+                            stats["errors"] += 1
+                    continue
+
                 if any(
                     str(client.get('email')) == email_value
                     for client in existing_clients_map.values()

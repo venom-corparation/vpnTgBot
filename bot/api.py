@@ -85,10 +85,11 @@ def _build_client_payload(
     expiry_ms: int,
     service=None,
     template_client: Optional[dict] = None,
+    client_id_override: Optional[str] = None,
 ):
     """Собрать payload клиента для XUI addClient/updateClient."""
     template = template_client or {}
-    client_uuid = str(uuid.uuid4())
+    client_uuid = client_id_override or str(uuid.uuid4())
 
     def _to_int(value, default=0):
         try:
@@ -230,6 +231,63 @@ def add_client_with_expiry(
     except requests.RequestException as e:
         logging.error(
             "Ошибка при добавлении клиента %s в inbound %s с заданным expiry: %s",
+            email,
+            inbound_id,
+            e,
+        )
+        return {"error": str(e), "client_id": None}
+
+
+def update_client_with_expiry(
+    session,
+    telegram_id,
+    expiry_time_ms: int,
+    inbound_id: int,
+    existing_client: dict,
+    email: str = None,
+    template_client: Optional[dict] = None,
+):
+    """Обновить существующего клиента с заданным временем истечения."""
+    if not existing_client:
+        return {"error": "missing_existing_client"}
+
+    client_id = existing_client.get("id")
+    if not client_id:
+        return {"error": "missing_client_id"}
+
+    url = f"{XUI_URL}/panel/api/inbounds/updateClient/{client_id}"
+    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    email = email or existing_client.get("email") or str(telegram_id)
+    service = get_service_by_inbound_id(inbound_id)
+    payload, client_uuid = _build_client_payload(
+        email,
+        telegram_id,
+        expiry_time_ms,
+        service=service,
+        template_client=template_client or existing_client,
+        client_id_override=client_id,
+    )
+
+    merged_client = dict(existing_client)
+    merged_client.update(payload)
+
+    settings = {"clients": [merged_client]}
+    data = {"id": inbound_id, "settings": json.dumps(settings)}
+
+    try:
+        response = session.post(url, json=data, headers=headers, timeout=5)
+        response.raise_for_status()
+        logging.info(
+            "Клиент %s обновлён в inbound %s до expiry=%s",
+            email,
+            inbound_id,
+            expiry_time_ms,
+        )
+        invalidate_client_cache(email)
+        return {"client_id": client_uuid, "result": response.json()}
+    except requests.RequestException as e:
+        logging.error(
+            "Ошибка при обновлении клиента %s в inbound %s: %s",
             email,
             inbound_id,
             e,
