@@ -7,7 +7,7 @@ from typing import Optional, Dict, Any
 import logging
 
 from config import XUI_URL
-from tariffs import get_service_by_inbound_id, auto_assign_services
+from tariffs import get_service_by_inbound_id, auto_assign_services, get_service
 from api import add_client_with_expiry
 
 DEFAULT_DB_PATH = "/app/data/users.db"
@@ -537,8 +537,26 @@ def sync_users_with_xui(session, db_path: str = DEFAULT_DB_PATH) -> dict:
             except (TypeError, ValueError):
                 continue
 
+            target_keys = getattr(service, "auto_assign_for_services", ())
+            target_inbound_ids = []
+            for key in target_keys:
+                target_service = get_service(key)
+                if target_service is None:
+                    continue
+                try:
+                    target_inbound_ids.append(int(target_service.inbound_id))
+                except (TypeError, ValueError):
+                    continue
+
             existing_clients_map = inbound_clients.get(inbound_id_int, {})
             for tg_id, record in xui_users.items():
+                if target_inbound_ids:
+                    has_required_service = any(
+                        tg_id in inbound_clients.get(target_inbound_id, {})
+                        for target_inbound_id in target_inbound_ids
+                    )
+                    if not has_required_service:
+                        continue
                 if tg_id in existing_clients_map:
                     continue
                 base_client = record.get("client") if record else None

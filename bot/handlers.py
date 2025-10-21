@@ -101,6 +101,9 @@ class MessageHandler:
 
         extras_ok = True
         for extra_service in auto_assign_services():
+            targets = getattr(extra_service, "auto_assign_for_services", ())
+            if targets and service.key not in targets:
+                continue
             if extra_service.key == service.key:
                 continue
             if not self._apply_service_days(session, user_id, days, extra_service):

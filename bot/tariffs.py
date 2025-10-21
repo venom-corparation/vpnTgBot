@@ -15,7 +15,7 @@ below and wiring its inbound id / suffix in the environment.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import os
 
@@ -57,6 +57,7 @@ class TariffService:
     visible: bool = True
     auto_assign_on_purchase: bool = False
     sync_priority: int = 5
+    auto_assign_for_services: Tuple[str, ...] = ()
 
     def email_for_user(self, tg_id: int) -> str:
         base = str(tg_id)
@@ -130,6 +131,7 @@ _SERVICES: Dict[str, TariffService] = {
         visible=False,
         auto_assign_on_purchase=True,
         sync_priority=2,
+        auto_assign_for_services=("standard", "obhod"),
     ),
 }
 
