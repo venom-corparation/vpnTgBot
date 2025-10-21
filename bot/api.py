@@ -23,7 +23,7 @@ _SESSION_CACHE = {
     "ts": 0.0,
 }
 
-# Client info cache to reduce XUI calls
+# Client info cache to reduce XUI calls. Keyed by (email, inbound_id).
 _CLIENT_CACHE = {}
 _LAST_FAIL_TS = 0.0
 
@@ -271,7 +271,8 @@ def get_client_info(session, identifier, inbound_id: int = None):
     email = str(identifier)
     # serve from cache if fresh
     now_ts = time.time()
-    cached = _CLIENT_CACHE.get(email)
+    cache_key = (email, int(inbound_id)) if inbound_id is not None else (email, None)
+    cached = _CLIENT_CACHE.get(cache_key)
     if cached and (now_ts - cached.get("ts", 0)) < CLIENT_INFO_TTL_SEC:
         return cached.get("inbound"), cached.get("client")
     response = session.get(url, headers=headers, timeout=5)
@@ -287,14 +288,20 @@ def get_client_info(session, identifier, inbound_id: int = None):
         clients = settings.get("clients", [])
         for client in clients:
             if client.get('email') == email:
-                logging.debug("Inbound fetched for email=%s (cached)", email)
-                _CLIENT_CACHE[email] = {"inbound": inbound, "client": client, "ts": now_ts}
+                logging.debug("Inbound fetched for email=%s (inbound=%s)", email, inbound_id_value)
+                _CLIENT_CACHE[cache_key] = {"inbound": inbound, "client": client, "ts": now_ts}
                 return inbound, client
     return None, None
 
 def invalidate_client_cache(email: str):
+    email_str = str(email)
     try:
-        _CLIENT_CACHE.pop(str(email), None)
+        keys_to_drop = [
+            key for key in list(_CLIENT_CACHE)
+            if (isinstance(key, tuple) and key and key[0] == email_str) or key == email_str
+        ]
+        for key in keys_to_drop:
+            _CLIENT_CACHE.pop(key, None)
     except Exception:
         pass
 
